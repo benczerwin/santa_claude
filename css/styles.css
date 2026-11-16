@@ -61,7 +61,9 @@ input, textarea, select { font-size: 16px; } /* stops iOS zooming on focus */
 .intro { color: var(--muted); margin: 0 0 14px; font-size: 0.95rem; }
 
 /* one header for every page */
-.page-head { display: flex; align-items: center; gap: 12px; min-height: 76px; margin: 4px 0 12px; }
+.page-head { display: flex; align-items: flex-start; gap: 12px; margin: 4px 0 14px; }
+.page-head > :last-child:not(.grow) { margin-top: 6px; }
+.page-theme { margin: -6px 0 14px; }
 .eyebrow {
   font-size: 0.78rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -322,16 +324,28 @@ input, textarea, select { font-size: 16px; } /* stops iOS zooming on focus */
 .sheet {
   background: var(--panel); width: 100%; max-width: 560px; max-height: 92dvh;
   border-radius: 22px 22px 0 0; display: flex; flex-direction: column;
-  animation: up 0.2s ease-out;
+  animation: up 0.22s ease-out; transition: transform 0.22s ease;
 }
-.sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 10px 6px 18px; }
-.sheet-head h2 { margin: 0; font-size: 1.15rem; font-weight: 900; }
+.sheet.dragging { transition: none; }
+.sheet-backdrop.closing { animation: fadeout 0.18s ease-in forwards; }
+.sheet-backdrop.closing .sheet { transform: translateY(100%) !important; transition: transform 0.18s ease-in; }
+.sheet-grab { width: 40px; height: 5px; border-radius: 3px; background: #ddd0c0; margin: 8px auto 0; flex: none; }
+.sheet-grab::before { content: ''; display: block; height: 22px; margin-top: -10px; } /* bigger touch target */
+.sheet-head { display: flex; align-items: center; gap: 10px; padding: 6px 10px 6px 18px; touch-action: none; }
+.sheet-head h2 { margin: 0; font-size: 1.15rem; font-weight: 900; flex: 1; min-width: 0; }
+.sheet-status { color: var(--muted); font-size: 0.8rem; font-weight: 700; white-space: nowrap; }
+.done-btn {
+  background: var(--red-soft); color: var(--red); border: 0; border-radius: 999px;
+  padding: 7px 14px; font-weight: 900; font-size: 0.9rem;
+}
+.field-error { display: block; color: var(--red); font-weight: 700; margin-top: 6px; }
 .sheet-body { padding: 8px 18px calc(18px + env(safe-area-inset-bottom)); overflow-y: auto; }
 @media (min-width: 700px) {
   .sheet-backdrop { align-items: center; }
   .sheet { border-radius: 22px; }
 }
 @keyframes fade { from { opacity: 0; } }
+@keyframes fadeout { to { background: rgba(30, 15, 10, 0); } }
 @keyframes up { from { transform: translateY(40px); opacity: 0.6; } }
 
 .lightbox {

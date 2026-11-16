@@ -63,10 +63,13 @@ export function listMode(me, person, group, now = Date.now()) {
 
 // ── items ──
 
-/** List order as the owner arranged it (drag to reorder); items never reordered go last, oldest first. */
+/** "Really want" items pinned on top, then the owner's drag order; never-reordered items go last, oldest first. */
 export function sortItems(items) {
   const key = (i) => (typeof i.order === 'number' ? [0, i.order] : [1, i.createdAt || 0]);
-  return [...items].sort((a, b) => { const x = key(a), y = key(b); return x[0] - y[0] || x[1] - y[1]; });
+  return [...items].sort((a, b) => {
+    const x = key(a), y = key(b);
+    return (b.priority ? 1 : 0) - (a.priority ? 1 : 0) || x[0] - y[0] || x[1] - y[1];
+  });
 }
 
 export const nextOrder = (items) => items.reduce((m, i) => Math.max(m, typeof i.order === 'number' ? i.order + 1 : 0), 0);

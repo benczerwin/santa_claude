@@ -84,24 +84,103 @@ function PageHeader({ eyebrow, title, right, children }) {
   </header>`;
 }
 
-function Sheet({ title, onClose, children }) {
+/** Bottom sheet. Swipe down (or tap outside / Done) to close. Contents save as you go. */
+function Sheet({ title, onClose, status, children }) {
+  const sheetRef = useRef();
+  const bodyRef = useRef();
+  const [dy, setDy] = useState(0);
+  const [closing, setClosing] = useState(false);
+  const close = () => { setClosing(true); setTimeout(onClose, 180); };
+
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    const esc = (e) => e.key === 'Escape' && onClose();
+    const esc = (e) => e.key === 'Escape' && close();
     addEventListener('keydown', esc);
     return () => { document.body.style.overflow = prev; removeEventListener('keydown', esc); };
   }, []);
+
+  // Touch drag: from the grabber/header always; from the body only when it's scrolled to the top.
+  useEffect(() => {
+    const el = sheetRef.current;
+    let st = null;
+    const start = (e) => {
+      const t = e.touches[0];
+      const inHead = !!e.target.closest('.sheet-grab, .sheet-head');
+      const atTop = (bodyRef.current?.scrollTop || 0) <= 0;
+      if (!inHead && (!atTop || e.target.closest('input, textarea, select, .avatar-pick'))) { st = null; return; }
+      st = { y: t.clientY, t: Date.now(), dy: 0, active: inHead };
+    };
+    const move = (e) => {
+      if (!st) return;
+      const d = e.touches[0].clientY - st.y;
+      if (!st.active) {
+        if (d < -4) { st = null; return; } // scrolling up into the content
+        if (d > 6) st.active = true; else return;
+      }
+      e.preventDefault();
+      st.dy = Math.max(0, d);
+      setDy(st.dy);
+    };
+    const end = () => {
+      if (!st) return;
+      const v = st.dy / Math.max(1, Date.now() - st.t);
+      const done = st.active && (st.dy > 110 || (st.dy > 40 && v > 0.6));
+      st = null;
+      if (done) close(); else setDy(0);
+    };
+    el.addEventListener('touchstart', start, { passive: true });
+    el.addEventListener('touchmove', move, { passive: false });
+    el.addEventListener('touchend', end);
+    el.addEventListener('touchcancel', end);
+    return () => {
+      el.removeEventListener('touchstart', start);
+      el.removeEventListener('touchmove', move);
+      el.removeEventListener('touchend', end);
+      el.removeEventListener('touchcancel', end);
+    };
+  }, []);
+
   return html`
-    <div class="sheet-backdrop" onClick=${(e) => e.target === e.currentTarget && onClose()}>
-      <div class="sheet" role="dialog" aria-modal="true" aria-label=${title}>
+    <div class=${`sheet-backdrop ${closing ? 'closing' : ''}`} onClick=${(e) => e.target === e.currentTarget && close()}>
+      <div class=${`sheet ${dy ? 'dragging' : ''}`} ref=${sheetRef} role="dialog" aria-modal="true" aria-label=${title}
+        style=${dy ? `transform:translateY(${dy}px)` : ''}>
+        <div class="sheet-grab" aria-hidden="true"></div>
         <div class="sheet-head">
           <h2>${title}</h2>
-          <button class="icon-btn" onClick=${onClose} aria-label="Close"><${Icon} name="x" /></button>
+          ${status && html`<span class="sheet-status">${status}</span>`}
+          <button class="done-btn" onClick=${close}>Done</button>
         </div>
-        <div class="sheet-body">${children}</div>
+        <div class="sheet-body" ref=${bodyRef}>${children}</div>
       </div>
     </div>`;
+}
+
+/** Saves `value` via `save` ~0.5s after it stops changing, and right away when the sheet closes. */
+function useAutosave(value, save, { enabled = true } = {}) {
+  const [status, setStatus] = useState('');
+  const timer = useRef(null);
+  const latest = useRef(value);
+  const dirty = useRef(false);
+  const first = useRef(true);
+  latest.current = value;
+  const flush = () => {
+    clearTimeout(timer.current);
+    timer.current = null;
+    if (!dirty.current) return;
+    dirty.current = false;
+    if (save(latest.current) !== false) setStatus('Saved');
+  };
+  useEffect(() => {
+    if (first.current) { first.current = false; return; }
+    if (!enabled) return;
+    dirty.current = true;
+    setStatus('Saving…');
+    clearTimeout(timer.current);
+    timer.current = setTimeout(flush, 500);
+  }, [JSON.stringify(value)]);
+  useEffect(() => () => flush(), []);
+  return status;
 }
 
 function AvatarPicker({ value, onChange }) {
@@ -462,16 +541,15 @@ function ListScreen({ personId, me, group, people, items, claims, now, year }) {
   const lockWhen = longDate(group.lockDate);
 
   const intro = {
-    edit: `${own ? 'Add anything you\'d like' : `You're managing ${firstName(person)}'s list`}. Changes allowed until ${lockWhen}. Drag the handle to reorder, swipe right to edit, left to delete.`,
+    edit: `Changes allowed until ${lockWhen}`,
     owner: 'Your list is locked. What people have bought is hidden, so no peeking!',
     shop: 'Swipe right to claim or mark bought, left to unclaim.',
   }[mode];
 
   return html`<main class="screen">
     <${PageHeader} eyebrow=${`Christmas ${year} · ${plural(list.length, 'item')}`}
-      title=${own ? 'My list' : `${person.name}'s list`} right=${html`<${Avatar} person=${person} size=${48} />`}>
-      ${person.label && html`<div class="theme"><${Icon} name="sock" size=${14} /> Stocking Theme: ${person.label}</div>`}
-    <//>
+      title=${own ? 'My list' : `${person.name}'s list`} right=${html`<${Avatar} person=${person} size=${44} />`} />
+    ${person.label && html`<div class="theme page-theme"><${Icon} name="sock" size=${14} /> Stocking Theme: ${person.label}</div>`}
 
     ${mode === 'hidden'
       ? html`<div class="panel center locked-list">
@@ -523,7 +601,9 @@ function ItemRow({ item, mode, me, people, claim, claims, year, onEdit, handle, 
 
   let left = null, right = null;
   if (edit) {
-    left = { icon: 'pencil', label: 'Edit', tone: 'green', onAction: onEdit };
+    left = item.priority
+      ? { icon: 'star', label: 'Unpin', tone: 'gold', onAction: () => store.patch('items', item.id, { priority: false }).catch(fail) }
+      : { icon: 'star', label: 'Really want', tone: 'gold', onAction: () => { store.patch('items', item.id, { priority: true }).catch(fail); toast('Pinned to the top'); } };
     right = { icon: 'trash', label: 'Delete', tone: 'red', onAction: del };
   } else if (shop && !claim) {
     left = { icon: 'gift', label: 'Claim', tone: 'gold', onAction: () => claimItem(item, me, year) };
@@ -573,18 +653,48 @@ function Lightbox({ id, onClose }) {
 }
 
 function ItemSheet({ item, owner, me, year, nextOrder, onClose }) {
+  const id = useRef(item?.id || M.newId()).current;
+  const created = useRef(!!item);
   const [f, setF] = useState(() => ({
     title: item?.title || '', link: item?.link || '', notes: item?.notes || '',
     price: item?.price != null ? String(item.price) : '', qty: item?.qty || 1,
     size: item?.size || '', color: item?.color || '', priority: !!item?.priority,
   }));
   const [thumb, setThumb] = useState(item?.thumb || null);
-  const [newPhoto, setNewPhoto] = useState(null); // {thumb, full} | 'remove' | null
+  const pendingPhoto = useRef(null); // {full} | 'remove' | null
   const [more, setMore] = useState(!!(item && (item.price != null || item.size || item.color || item.qty > 1)));
   const [busy, setBusy] = useState(false);
   const titleRef = useRef();
   useEffect(() => { if (!item) setTimeout(() => titleRef.current?.focus(), 80); }, []);
-  const set = (k) => (e) => setF((cur) => ({ ...cur, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
+  const set = (k) => (e) => {
+    const v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    setF((cur) => ({ ...cur, [k]: v }));
+  };
+  const linkBad = !!f.link.trim() && !M.normalizeLink(f.link);
+
+  const status = useAutosave({ f, thumb }, ({ f, thumb }) => {
+    const title = f.title.trim();
+    if (!title) return false; // nothing to save until it has a name
+    const fields = {
+      title, link: M.normalizeLink(f.link), notes: f.notes.trim(),
+      price: M.parsePrice(f.price), qty: Math.max(1, parseInt(f.qty, 10) || 1),
+      size: f.size.trim(), color: f.color.trim(), priority: f.priority,
+      thumb: thumb || null, hasPhoto: !!thumb, updatedAt: Date.now(),
+    };
+    if (created.current) {
+      store.patch('items', id, fields).catch(fail);
+    } else {
+      store.put('items', id, {
+        ...fields, ownerId: owner.id, year, order: nextOrder, createdAt: Date.now(), addedBy: me.id,
+      }).catch(fail);
+      created.current = true;
+      toast('Added to the list');
+    }
+    const p = pendingPhoto.current;
+    pendingPhoto.current = null;
+    if (p === 'remove') store.remove('photos', id).catch(fail);
+    else if (p) store.put('photos', id, { full: p.full, ownerId: owner.id }).catch(fail);
+  });
 
   async function pickPhoto(e) {
     const file = e.target.files?.[0];
@@ -593,7 +703,7 @@ function ItemSheet({ item, owner, me, year, nextOrder, onClose }) {
     setBusy(true);
     try {
       const p = await processPhoto(file);
-      setNewPhoto(p);
+      pendingPhoto.current = { full: p.full };
       setThumb(p.thumb);
     } catch (err) {
       toast(err.message, 'error');
@@ -601,40 +711,22 @@ function ItemSheet({ item, owner, me, year, nextOrder, onClose }) {
       setBusy(false);
     }
   }
+  const removePhoto = () => { pendingPhoto.current = item?.hasPhoto || created.current ? 'remove' : null; setThumb(null); };
 
-  function save(e) {
-    e.preventDefault();
-    const title = f.title.trim();
-    if (!title) return toast('Give it a name', 'error');
-    const link = M.normalizeLink(f.link);
-    if (f.link.trim() && !link) return toast("That link doesn't look right", 'error');
-    const id = item?.id || M.newId();
-    const doc = {
-      ownerId: owner.id, year: item?.year ?? year, title, link, notes: f.notes.trim(),
-      price: M.parsePrice(f.price), qty: Math.max(1, parseInt(f.qty, 10) || 1),
-      size: f.size.trim(), color: f.color.trim(), priority: f.priority,
-      thumb: thumb || null, hasPhoto: !!thumb, order: item?.order ?? nextOrder,
-      createdAt: item?.createdAt || Date.now(), addedBy: item?.addedBy || me.id, updatedAt: Date.now(),
-    };
-    if (newPhoto && newPhoto !== 'remove') store.put('photos', id, { full: newPhoto.full, ownerId: owner.id }).catch(fail);
-    if (newPhoto === 'remove') store.remove('photos', id).catch(fail);
-    store.put('items', id, doc).catch(fail);
-    toast(item ? 'Saved' : 'Added to the list');
-    onClose();
-  }
-
-  return html`<${Sheet} title=${item ? 'Edit item' : 'Add an item'} onClose=${onClose}>
-    <form onSubmit=${save}>
+  return html`<${Sheet} title=${item ? 'Edit item' : 'Add an item'} onClose=${onClose}
+      status=${busy ? 'Processing photo…' : !f.title.trim() ? (item ? 'Needs a name' : '') : status}>
+    <form onSubmit=${(e) => e.preventDefault()}>
       <label class="field"><span>What is it?</span>
-        <input value=${f.title} onInput=${set('title')} maxlength="120" placeholder="e.g. Cozy slippers" ref=${titleRef} /></label>
+        <input value=${f.title} onInput=${set('title')} maxlength="120" placeholder="e.g. Cozy slippers" ref=${titleRef} enterkeyhint="done" /></label>
       <label class="field"><span>Link <em>(optional)</em></span>
         <input type="text" inputmode="url" autocapitalize="off" autocorrect="off" value=${f.link} onInput=${set('link')}
-          placeholder="Paste a link to the product" /></label>
+          placeholder="Paste a link to the product" />
+        ${linkBad && html`<small class="field-error">That link doesn't look right, so it won't be saved.</small>`}</label>
       <label class="field"><span>Notes <em>(optional)</em></span>
         <textarea rows="3" value=${f.notes} onInput=${set('notes')} maxlength="1000"
           placeholder="Any store, style, or other details"></textarea></label>
       <label class="toggle"><input type="checkbox" checked=${f.priority} onChange=${set('priority')} />
-        <span class="row"><${Icon} name="star" size=${18} /> I really want this</span></label>
+        <span class="row"><${Icon} name="star" size=${18} /> I really want this (pins it to the top)</span></label>
 
       ${more
         ? html`<div class="grid2">
@@ -653,10 +745,9 @@ function ItemSheet({ item, owner, me, year, nextOrder, onClose }) {
         ${thumb && html`<img class="thumb big" src=${thumb} alt="" />`}
         <label class="btn"><${Icon} name="camera" /> ${thumb ? 'Change photo' : 'Add photo'}
           <input type="file" accept="image/*" hidden onChange=${pickPhoto} /></label>
-        ${thumb && html`<button type="button" class="btn" onClick=${() => { setThumb(null); setNewPhoto(item?.hasPhoto ? 'remove' : null); }}>Remove</button>`}
+        ${thumb && html`<button type="button" class="btn" onClick=${removePhoto}>Remove</button>`}
       </div>
-
-      <button class="btn primary block" disabled=${busy}>${busy ? 'Processing photo…' : item ? 'Save' : 'Add to list'}</button>
+      <p class="hint">Changes save automatically. Swipe down or tap Done when you're finished.</p>
     </form>
   <//>`;
 }
@@ -714,30 +805,32 @@ function Shopping({ me, group, people, items, claims, now, year }) {
 // ───────────────────────── family ─────────────────────────
 
 function PersonSheet({ person, title, onSave, onClose, children }) {
-  const [name, setName] = useState(person?.name || '');
-  const [label, setLabel] = useState(person?.label || '');
-  const [avatar, setAvatar] = useState(person?.avatar || '🧸');
-  return html`<${Sheet} title=${title} onClose=${onClose}>
-    <form onSubmit=${(e) => {
-      e.preventDefault();
-      if (!name.trim()) return toast('Add a name', 'error');
-      onSave({ name: name.trim(), label: label.trim(), avatar });
-      onClose();
-    }}>
-      <label class="field"><span>Name</span><input value=${name} onInput=${(e) => setName(e.target.value)} maxlength="30" /></label>
+  const [d, setD] = useState({ name: person?.name || '', label: person?.label || '', avatar: person?.avatar || '🧸' });
+  const set = (k) => (v) => setD((cur) => ({ ...cur, [k]: v }));
+  const status = useAutosave(d, (d) => {
+    const name = d.name.trim();
+    if (!name) return false;
+    onSave({ name, label: d.label.trim(), avatar: d.avatar });
+  });
+  return html`<${Sheet} title=${title} onClose=${onClose} status=${d.name.trim() ? status : person ? 'Needs a name' : ''}>
+    <form onSubmit=${(e) => e.preventDefault()}>
+      <label class="field"><span>Name</span><input value=${d.name} onInput=${(e) => set('name')(e.target.value)} maxlength="30" enterkeyhint="done" /></label>
       <label class="field"><span>Stocking Theme <em>(optional)</em></span>
-        <input value=${label} onInput=${(e) => setLabel(e.target.value)} maxlength="40" /></label>
-      <${AvatarPicker} value=${avatar} onChange=${setAvatar} />
-      <button class="btn primary block">Save</button>
+        <input value=${d.label} onInput=${(e) => set('label')(e.target.value)} maxlength="40" enterkeyhint="done" /></label>
+      <${AvatarPicker} value=${d.avatar} onChange=${set('avatar')} />
     </form>
     ${children}
   <//>`;
 }
 
 function AddListSheet({ me, onClose }) {
+  const id = useRef(M.newId()).current;
+  const created = useRef(false);
   return html`<${PersonSheet} title="Add a list for someone" onClose=${onClose}
     onSave=${(d) => {
-      store.put('people', M.newId(), { ...d, managedBy: me.id, createdAt: Date.now() }).catch(fail);
+      if (created.current) { store.patch('people', id, d).catch(fail); return; }
+      created.current = true;
+      store.put('people', id, { ...d, managedBy: me.id, createdAt: Date.now() }).catch(fail);
       toast(`Added ${d.name}. Open their list to add items.`);
     }} />`;
 }
