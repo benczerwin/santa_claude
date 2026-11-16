@@ -1,5 +1,15 @@
 // Exports: a shareable picture of a wish list, and the shopping list as an Excel file.
 import * as M from './model.js';
+import { isIcon, avatarSVG } from './avatars.js';
+
+function loadSVG(svg) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  });
+}
 
 // ── sharing ──
 
@@ -138,13 +148,23 @@ export async function listPicture({ person, items, year }) {
   // header
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = '#fbf0d4';
-  ctx.beginPath();
-  ctx.arc(W / 2, 150, 92, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.font = `110px ${BODY}`;
-  ctx.textBaseline = 'middle';
-  ctx.fillText(person.avatar || '🎁', W / 2, 158);
+  const art = isIcon(person.avatar) ? await loadSVG(avatarSVG(person.avatar)).catch(() => null) : null;
+  if (art) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(W / 2, 150, 92, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(art, W / 2 - 92, 58, 184, 184);
+    ctx.restore();
+  } else {
+    ctx.fillStyle = '#fbf0d4';
+    ctx.beginPath();
+    ctx.arc(W / 2, 150, 92, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.font = `110px ${BODY}`;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(person.avatar || '🎁', W / 2, 158);
+  }
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = '#fff';
   ctx.font = `700 96px ${DISPLAY}`;

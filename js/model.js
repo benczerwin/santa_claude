@@ -1,12 +1,5 @@
 // Pure rules for lists: lock date, who sees what, links, formatting.
 
-export const AVATARS = [
-  '🎅', '🤶', '🧑‍🎄', '🦌', '⛄', '🎄', '🍪', '🧦', '🔔', '⭐', '🎁', '🎀', '🕯️', '❄️', '🍭', '☕',
-  '🐧', '🧸', '🐻‍❄️', '🦊', '🦉', '🐶', '🐱', '🐰', '🐻', '🐼', '🐨', '🦁', '🐯', '🐸', '🐵', '🦄',
-  '🐢', '🐙', '🦖', '🐳', '🦋', '🐝', '🌻', '🌵', '🍄', '🌈', '🍕', '🧁', '🍩', '🍓', '🥑', '🌮',
-  '🚀', '🎸', '🎹', '🎨', '📚', '🎮', '⚽', '🏀', '⛳', '🎣', '🏔️', '🏖️', '👑', '🤖', '👻', '🧙',
-];
-
 export const newId = (n = 12) => {
   const abc = 'abcdefghijkmnpqrstuvwxyz23456789';
   const bytes = crypto.getRandomValues(new Uint8Array(n));
@@ -206,4 +199,35 @@ export function linkKey(href) {
     if (/amazon\./.test(u.hostname) && m) return `amazon:${m[1]}`;
   } catch {}
   return href;
+}
+
+// ── family order & groups ──
+// group.units = [{ id, name }] in display order; person.unit = unit id (or null); person.sort = position.
+
+/** Everyone in display order. Never-arranged people go after, by name, each followed by the lists they manage. */
+export function orderPeople(people) {
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  const out = people.filter((p) => typeof p.sort === 'number').sort((a, b) => a.sort - b.sort);
+  const seen = new Set(out.map((p) => p.id));
+  const rest = people.filter((p) => !seen.has(p.id));
+  const add = (p) => {
+    if (seen.has(p.id)) return;
+    seen.add(p.id);
+    out.push(p);
+    rest.filter((q) => q.managedBy === p.id).sort(byName).forEach(add);
+  };
+  rest.filter((p) => !p.managedBy || !rest.some((q) => q.id === p.managedBy)).sort(byName).forEach(add);
+  rest.forEach(add);
+  return out;
+}
+
+/** -> { sections: [{ unit, people }], loose: people not in any group }, all in display order. */
+export function familySections(group, people) {
+  const units = group?.units || [];
+  const ordered = orderPeople(people);
+  const ids = new Set(units.map((u) => u.id));
+  return {
+    sections: units.map((unit) => ({ unit, people: ordered.filter((p) => p.unit === unit.id) })),
+    loose: ordered.filter((p) => !p.unit || !ids.has(p.unit)),
+  };
 }

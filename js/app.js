@@ -3,6 +3,7 @@ import * as store from './store.js';
 import * as M from './model.js';
 import { processPhoto } from './photo.js';
 import { iconSVG } from './icons.js';
+import { ICON_IDS, isIcon, iconName, avatarSVG } from './avatars.js';
 import { loadSample } from './sample.js';
 import { listPicture, shoppingWorkbook, shareOrDownload, loadXLSX } from './export.js';
 
@@ -69,8 +70,15 @@ function Icon({ name, size = 20 }) {
   return html`<span class="icon" dangerouslySetInnerHTML=${{ __html: svg }} />`;
 }
 
+const avatarCache = {};
+/** A person's picture: one of the drawn icons ('i:…') or an emoji. */
 function Avatar({ person, size = 44 }) {
-  return html`<span class="avatar" style=${`--size:${size}px`} aria-hidden="true">${person?.avatar || '🎁'}</span>`;
+  const a = person?.avatar || 'i:present';
+  if (isIcon(a)) {
+    const svg = (avatarCache[a] ??= avatarSVG(a));
+    return html`<span class="avatar art" style=${`--size:${size}px`} aria-hidden="true" dangerouslySetInnerHTML=${{ __html: svg }} />`;
+  }
+  return html`<span class="avatar" style=${`--size:${size}px`} aria-hidden="true">${a}</span>`;
 }
 
 /** Same header on every page: small line above, title, optional thing on the right. */
@@ -194,13 +202,13 @@ function firstEmoji(text) {
 }
 
 function AvatarPicker({ value, onChange }) {
-  const custom = value && !M.AVATARS.includes(value);
+  const custom = value && !isIcon(value);
   const [text, setText] = useState('');
   return html`<div class="field"><span>Icon</span>
     <div class="avatar-pick" role="radiogroup" aria-label="Pick an icon">
       ${custom && html`<button type="button" role="radio" aria-checked="true" class="on">${value}</button>`}
-      ${M.AVATARS.map((a) => html`<button type="button" role="radio" aria-checked=${a === value}
-        class=${a === value ? 'on' : ''} onClick=${() => onChange(a)}>${a}</button>`)}
+      ${ICON_IDS.map((a) => html`<button type="button" role="radio" aria-checked=${a === value} aria-label=${iconName(a)} title=${iconName(a)}
+        class=${a === value ? 'on' : ''} onClick=${() => onChange(a)}><${Avatar} person=${{ avatar: a }} size=${40} /></button>`)}
     </div>
     <label class="emoji-own">
       <span>Or use your own</span>
@@ -378,7 +386,7 @@ function Setup({ onSignIn, onSample }) {
   const [groupName, setGroupName] = useState('Our Family');
   const [lockDate, setLockDate] = useState(M.defaultLockDate());
   const [name, setName] = useState('');
-  const [avatar, setAvatar] = useState('🎅');
+  const [avatar, setAvatar] = useState('i:santa');
   const [busy, setBusy] = useState(false);
 
   async function submit(e) {
@@ -444,7 +452,7 @@ function SignIn({ group, people, onSignIn }) {
 
 function JoinScreen({ people, onBack, onSignIn }) {
   const [name, setName] = useState('');
-  const [avatar, setAvatar] = useState(M.AVATARS[Math.floor(Math.random() * M.AVATARS.length)]);
+  const [avatar, setAvatar] = useState(ICON_IDS[Math.floor(Math.random() * ICON_IDS.length)]);
   const [label, setLabel] = useState('');
 
   function submit(e) {
@@ -496,7 +504,7 @@ function Home({ me, group, people, items, claims, now, year, onYear, onSignOut }
   const countFor = (pid) => items.filter((i) => i.ownerId === pid).length;
   const availableFor = (pid) => items.filter((i) => i.ownerId === pid && !claims.some((c) => c.id === i.id)).length;
   const managed = people.filter((p) => p.managedBy === me.id).sort(byName);
-  const others = people.filter((p) => p.id !== me.id && p.managedBy !== me.id).sort(byName);
+  const others = M.orderPeople(people).filter((p) => p.id !== me.id && p.managedBy !== me.id);
   const myClaims = claims.filter((c) => c.claimerId === me.id && items.some((i) => i.id === c.id));
   const toBuy = myClaims.filter((c) => c.status !== 'bought').length;
 
@@ -948,7 +956,7 @@ function Shopping({ me, group, people, items, claims, now, year }) {
 // ───────────────────────── family ─────────────────────────
 
 function PersonSheet({ person, title, onSave, onClose, children }) {
-  const [d, setD] = useState({ name: person?.name || '', label: person?.label || '', avatar: person?.avatar || '🧸' });
+  const [d, setD] = useState({ name: person?.name || '', label: person?.label || '', avatar: person?.avatar || 'i:polarbear' });
   const set = (k) => (v) => setD((cur) => ({ ...cur, [k]: v }));
   const [status] = useAutosave(d, (d) => {
     const name = d.name.trim();
@@ -980,10 +988,61 @@ function AddListSheet({ me, onClose }) {
 
 function Family({ me, group, people, items, allItems, allClaims }) {
   const [editing, setEditing] = useState(null); // person | 'add'
+  const [arranging, setArranging] = useState(false);
   const admin = M.isAdmin(group, me);
   const admins = group.admins || [];
+  const units = group.units || [];
   const canEditPerson = (p) => admin || M.canEdit(me, p);
-  const sorted = [...people].sort((a, b) => (a.id === me.id ? -1 : b.id === me.id ? 1 : byName(a, b)));
+  const { sections, loose } = M.familySections(group, people);
+
+  // Arrange mode: one flat list of group headers and people; dragging a person under a header puts them in that group.
+  const entries = [
+    ...sections.flatMap((s) => [{ id: `u:${s.unit.id}`, unit: s.unit }, ...s.people.map((p) => ({ id: p.id, p }))]),
+    ...(units.length ? [{ id: 'u:', unit: null }] : []),
+    ...loose.map((p) => ({ id: p.id, p })),
+  ];
+  const reorder = useReorder(entries.map((e) => e.id), (ids) => {
+    let unit = null;
+    let i = 0;
+    for (const id of ids) {
+      if (id.startsWith('u:')) { unit = id.slice(2) || null; continue; }
+      const p = people.find((x) => x.id === id);
+      const changes = {};
+      if (p.sort !== i) changes.sort = i;
+      if ((p.unit || null) !== unit) changes.unit = unit;
+      if (Object.keys(changes).length) store.patch('people', id, changes).catch(fail);
+      i++;
+    }
+  });
+
+  const saveUnits = (next) => store.patch('settings', 'group', { units: next }).catch(fail);
+  const addUnit = () => saveUnits([...units, { id: M.newId(6), name: 'New group' }]);
+  const renameUnit = (id, name) => saveUnits(units.map((u) => (u.id === id ? { ...u, name: name.trim() || u.name } : u)));
+  const moveUnit = (id, d) => {
+    const i = units.findIndex((u) => u.id === id), j = i + d;
+    if (j < 0 || j >= units.length) return;
+    const next = [...units];
+    [next[i], next[j]] = [next[j], next[i]];
+    saveUnits(next);
+  };
+  const deleteUnit = (u) => {
+    if (!confirm(`Remove the "${u.name}" group? The people in it stay; they just won't be grouped.`)) return;
+    for (const p of people.filter((x) => x.unit === u.id)) store.patch('people', p.id, { unit: null }).catch(fail);
+    saveUnits(units.filter((x) => x.id !== u.id));
+  };
+  /** One group per person who manages lists: them plus the lists they manage. */
+  const autoGroup = () => {
+    const managers = people.filter((p) => people.some((q) => q.managedBy === p.id));
+    if (!managers.length) return toast('Nobody manages a list yet');
+    const next = [...units];
+    for (const m of M.orderPeople(managers)) {
+      const id = M.newId(6);
+      next.push({ id, name: `${firstName(m)}'s family` });
+      for (const p of [m, ...people.filter((q) => q.managedBy === m.id)]) store.patch('people', p.id, { unit: id }).catch(fail);
+    }
+    saveUnits(next);
+    toast('Grouped managed lists with whoever manages them');
+  };
 
   const sub = (p) => [
     p.managedBy ? `Managed by ${p.managedBy === me.id ? 'you' : firstName(people.find((x) => x.id === p.managedBy))}` : '',
@@ -1003,19 +1062,51 @@ function Family({ me, group, people, items, allItems, allClaims }) {
   const ed = editing && editing !== 'add' ? people.find((p) => p.id === editing.id) : null;
   const canRemove = ed && ed.id !== me.id && (admin || ed.managedBy === me.id);
 
+  const member = (p) => html`<div class="member" key=${p.id}>
+    <a href=${`#/list/${p.id}`}><${Avatar} person=${p} size=${48} /></a>
+    <a class="grow member-main" href=${`#/list/${p.id}`}>
+      <b>${p.name}${p.id === me.id ? ' (you)' : ''}${admins.includes(p.id) && html` <span class="tag"><${Icon} name="crown" size=${12} /> Organizer</span>`}</b>
+      ${p.label && html`<span class="theme"><${Icon} name="sock" size=${14} /> Stocking Theme: ${p.label}</span>`}
+      <small>${sub(p)}</small>
+    </a>
+    ${canEditPerson(p) && html`<button class="icon-btn" onClick=${() => setEditing(p)} aria-label=${`Edit ${p.name}`}><${Icon} name="pencil" /></button>`}
+  </div>`;
+
+  const arrangeRow = (e, i) => e.p
+    ? html`<div class=${`member arrange ${reorder.draggingId === e.id ? 'dragging' : ''}`} key=${e.id}
+        ref=${reorder.rowRef(e.id)} style=${reorder.styleFor(e.id, i)}>
+        <button class="handle" aria-label=${`Drag ${e.p.name}`} ...${reorder.handle(e.id)}><${Icon} name="grip" /></button>
+        <${Avatar} person=${e.p} size=${36} />
+        <b class="grow">${e.p.name}${e.p.managedBy ? html` <small class="muted">· managed</small>` : ''}</b>
+      </div>`
+    : html`<div class="unit-head" key=${e.id} ref=${reorder.rowRef(e.id)} style=${reorder.styleFor(e.id, i)}>
+        ${e.unit
+          ? html`<input class="unit-name" value=${e.unit.name} aria-label="Group name" maxlength="40"
+              onChange=${(ev) => renameUnit(e.unit.id, ev.target.value)} />
+            <button class="icon-btn" aria-label="Move group up" onClick=${() => moveUnit(e.unit.id, -1)}><span class="rot-up"><${Icon} name="chevron" size=${18} /></span></button>
+            <button class="icon-btn" aria-label="Move group down" onClick=${() => moveUnit(e.unit.id, 1)}><span class="rot-down"><${Icon} name="chevron" size=${18} /></span></button>
+            <button class="icon-btn danger" aria-label="Remove group" onClick=${() => deleteUnit(e.unit)}><${Icon} name="x" size=${18} /></button>`
+          : html`<span class="section">Not in a group</span>`}
+      </div>`;
+
   return html`<main class="screen">
-    <${PageHeader} eyebrow=${`${group.name} · ${people.length} ${people.length === 1 ? 'person' : 'people'}`} title="Family" />
-    ${sorted.map((p) => html`<div class="member" key=${p.id}>
-      <a href=${`#/list/${p.id}`}><${Avatar} person=${p} size=${48} /></a>
-      <a class="grow member-main" href=${`#/list/${p.id}`}>
-        <b>${p.name}${p.id === me.id ? ' (you)' : ''}${admins.includes(p.id) && html` <span class="tag"><${Icon} name="crown" size=${12} /> Organizer</span>`}</b>
-        ${p.label && html`<span class="theme"><${Icon} name="sock" size=${14} /> Stocking Theme: ${p.label}</span>`}
-        <small>${sub(p)}</small>
-      </a>
-      ${canEditPerson(p) && html`<button class="icon-btn" onClick=${() => setEditing(p)} aria-label=${`Edit ${p.name}`}><${Icon} name="pencil" /></button>`}
-    </div>`)}
-    <button class="btn block" onClick=${() => setEditing('add')}><${Icon} name="userPlus" /> Add a list for someone without a phone</button>
-    <p class="hint center gap-top">Anyone else can join by opening this site and tapping "I'm new, sign me up".</p>
+    <${PageHeader} eyebrow=${`${group.name} · ${people.length} ${people.length === 1 ? 'person' : 'people'}`} title="Family"
+      right=${admin && html`<button class=${`btn small ${arranging ? 'primary' : ''}`} onClick=${() => setArranging(!arranging)}>
+        ${arranging ? html`<${Icon} name="check" size=${16} /> Done` : html`<${Icon} name="grip" size=${16} /> Arrange`}</button>`} />
+
+    ${arranging
+      ? html`<p class="intro">Drag people by the handle to reorder them or move them into a group.</p>
+        <div class="items arrange-list">${entries.map(arrangeRow)}</div>
+        <div class="row wrap gap-top">
+          <button class="btn" onClick=${addUnit}><${Icon} name="plus" /> New group</button>
+          <button class="btn" onClick=${autoGroup}><${Icon} name="users" /> Group managed lists</button>
+        </div>`
+      : html`
+        ${sections.filter((s) => s.people.length).map((s) => html`<h2 class="section">${s.unit.name}</h2>${s.people.map(member)}`)}
+        ${units.length > 0 && loose.length > 0 && html`<h2 class="section">${sections.some((s) => s.people.length) ? 'Everyone else' : 'Family'}</h2>`}
+        ${loose.map(member)}
+        <button class="btn block" onClick=${() => setEditing('add')}><${Icon} name="userPlus" /> Add a list for someone without a phone</button>
+        <p class="hint center gap-top">Anyone else can join by opening this site and tapping "I'm new, sign me up".</p>`}
 
     ${editing === 'add' && html`<${AddListSheet} me=${me} onClose=${() => setEditing(null)} />`}
     ${ed && html`<${PersonSheet} title=${ed.id === me.id ? 'Edit you' : `Edit ${ed.name}`} person=${ed}

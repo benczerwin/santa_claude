@@ -17,12 +17,12 @@ function getAll(col) {
 const amazon = (q) => `https://www.amazon.com/s?k=${encodeURIComponent(q)}`;
 
 const PEOPLE = {
-  alex: { name: 'Alex', avatar: '🎅', label: 'Coffee & cozy', managedBy: null },
-  jordan: { name: 'Jordan', avatar: '🦊', label: 'Board games', managedBy: null },
-  sam: { name: 'Sam', avatar: '🐧', label: 'Hot sauce', managedBy: null },
-  rose: { name: 'Grandma Rose', avatar: '🌻', label: 'Gardening', managedBy: null },
-  milo: { name: 'Milo', avatar: '🦖', label: 'Dinosaurs', managedBy: 'jordan' },
-  ivy: { name: 'Ivy', avatar: '🦄', label: 'Art supplies', managedBy: 'alex' },
+  alex: { name: 'Alex', avatar: 'i:santa', label: 'Coffee & cozy', managedBy: null },
+  jordan: { name: 'Jordan', avatar: 'i:fox', label: 'Board games', managedBy: null },
+  sam: { name: 'Sam', avatar: 'i:penguin', label: 'Hot sauce', managedBy: null },
+  rose: { name: 'Grandma Rose', avatar: 'i:cardinal', label: 'Gardening', managedBy: null },
+  milo: { name: 'Milo', avatar: 'i:gingerbread', label: 'Dinosaurs', managedBy: 'jordan' },
+  ivy: { name: 'Ivy', avatar: 'i:bunny', label: 'Art supplies', managedBy: 'alex' },
 };
 
 // [owner, title, {fields}]
@@ -80,9 +80,11 @@ export async function loadSample() {
   const t = Date.now();
   const writes = [store.put('settings', 'group', {
     name: 'The Sample Family', admins: ['alex'], createdAt: t,
+    units: [{ id: 'ua', name: "Alex's family" }, { id: 'uj', name: "Jordan's family" }],
     years: { [LAST_YEAR]: { lockDate: `${LAST_YEAR}-12-01` }, [THIS_YEAR]: { lockDate: defaultLockDate() } },
   })];
-  for (const [id, p] of Object.entries(PEOPLE)) writes.push(store.put('people', id, { ...p, createdAt: t }));
+  const UNIT = { alex: 'ua', ivy: 'ua', jordan: 'uj', milo: 'uj' };
+  Object.entries(PEOPLE).forEach(([id, p], i) => writes.push(store.put('people', id, { ...p, unit: UNIT[id] || null, sort: i, createdAt: t })));
   const addItems = (list, prefix, year) => {
     const counts = {};
     list.forEach(([owner, title, f], i) => {
