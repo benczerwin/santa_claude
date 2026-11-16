@@ -92,6 +92,15 @@ export function normalizeLink(raw) {
   }
 }
 
+/** Every link on an item, primary first. Items store `link` (primary) + `links` (the rest). */
+export const allLinks = (item) => (item ? [item.link, ...(item.links || [])].filter(Boolean) : []);
+
+/** Editor rows -> { link, links }: drops blanks, invalid and duplicate links; first valid one is primary. */
+export function splitLinks(rows) {
+  const ok = [...new Set(rows.map(normalizeLink).filter(Boolean))];
+  return { link: ok[0] || '', links: ok.slice(1) };
+}
+
 export function linkHost(href) {
   try { return new URL(normalizeLink(href)).hostname.replace(/^www\./, ''); } catch { return 'link'; }
 }

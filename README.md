@@ -7,7 +7,7 @@ Family Christmas lists. Everyone adds what they'd like to their own list until t
 - **Before the lock date:** you can only see and edit your own list (and any lists you manage). Other lists show "Opens Dec 1".
 - **After the lock date:** your list is read-only, and you **never see** what's been claimed or bought on it. Everyone else's lists open for shopping.
 - **Claiming:** tap an item, then "I'll get this". Others see it as "Claimed · Ben". Then "Mark bought", or "Unclaim" to let it go. The 🛒 Shopping tab lists everything you've claimed, with an estimated total.
-- **Items** have a name, link, notes, a ★ "really want this" flag, and optional price, quantity, size, color and a photo. Shoppers can filter by available/mine and by price.
+- **Items** have a name, a primary link plus any extra links, notes, a ★ "really want this" flag, and optional price, quantity, size, color and a photo. Shoppers can filter by available/mine and by price.
 - **Family tab:** everyone in the group, with their Stocking Theme.
 - **Christmas years:** each year has its own lists, lock date and claims. Pick the year at the top of Home; each phone remembers the last one you viewed. Organizers start a new year in Settings.
 - **Paste links:** on your list, "Paste links from Amazon or other stores" turns pasted product links into items, naming them from the link where possible.
@@ -72,6 +72,6 @@ Then open http://localhost:8124.
 | --- | --- |
 | `settings/group` | `name`, `admins`, `years: { '2026': { lockDate } }` |
 | `people/{id}` | `name`, `label` (Stocking Theme), `avatar`, `managedBy` (or null) |
-| `items/{id}` | `ownerId`, `year`, `order`, `title`, `link`, `notes`, `priority`, `price`, `qty`, `size`, `color`, `thumb` |
+| `items/{id}` | `ownerId`, `year`, `order`, `title`, `link` (primary), `links` (others), `notes`, `priority`, `price`, `qty`, `size`, `color`, `thumb` |
 | `claims/{itemId}` | `claimerId`, `ownerId`, `year`, `status` (`claimed` / `bought`) |
 | `photos/{itemId}` | `full` (JPEG data URL) |

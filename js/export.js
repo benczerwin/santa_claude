@@ -90,7 +90,8 @@ function layout(ctx, items) {
     const title = wrap(ctx, it.title, TEXT_W, 2);
     ctx.font = `700 29px ${BODY}`;
     const meta = M.itemMeta(it);
-    const link = it.link ? M.linkHost(it.link) : '';
+    const all = M.allLinks(it);
+    const link = all.length ? `${M.linkHost(all[0])}${all.length > 1 ? ` +${all.length - 1}` : ''}` : '';
     const metaLine = [meta, link].filter(Boolean).join(' · ');
     ctx.font = `italic 600 29px ${BODY}`;
     const notes = it.notes ? wrap(ctx, it.notes, TEXT_W, 2) : [];
@@ -257,19 +258,19 @@ export const loadXLSX = () => (xlsxPromise ??= import('https://cdn.jsdelivr.net/
 export async function shoppingWorkbook(rows, { year, shopper }) {
   const XLSX = await loadXLSX();
   const header = ['For', 'Stocking Theme', 'Item', 'Status', 'Really wants it', 'Price', 'Quantity', 'Est. total',
-    'Size', 'Color', 'Notes', 'Link', 'Christmas'];
+    'Size', 'Color', 'Notes', 'Link', 'Other links', 'Christmas'];
   const sorted = [...rows].sort((a, b) => a.person.name.localeCompare(b.person.name) || (a.item.order ?? 0) - (b.item.order ?? 0));
   const data = sorted.map(({ person, item, claim }) => [
     person.name, person.label || '', item.title, claim.status === 'bought' ? 'Bought' : 'To buy',
     item.priority ? 'Yes' : '', item.price ?? null, item.qty || 1,
     item.price != null ? Math.round(item.price * (item.qty || 1) * 100) / 100 : null,
-    item.size || '', item.color || '', item.notes || '', item.link || '', Number(year),
+    item.size || '', item.color || '', item.notes || '', item.link || '', (item.links || []).join('\n'), Number(year),
   ]);
   const total = data.reduce((s, r) => s + (r[7] || 0), 0);
   const aoa = [header, ...data, [], ['Total', '', '', '', '', null, null, Math.round(total * 100) / 100]];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
 
-  ws['!cols'] = [18, 20, 34, 9, 14, 10, 9, 11, 10, 14, 40, 40, 10].map((wch) => ({ wch }));
+  ws['!cols'] = [18, 20, 34, 9, 14, 10, 9, 11, 10, 14, 40, 40, 40, 10].map((wch) => ({ wch }));
   ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: data.length, c: header.length - 1 } }) };
   const money = '"$"#,##0.00';
   for (let r = 1; r < aoa.length; r++) {

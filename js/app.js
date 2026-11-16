@@ -663,8 +663,8 @@ function ItemRow({ item, mode, me, people, claim, claims, year, onEdit, handle, 
         ${meta && html`<div class="meta">${meta}</div>`}
         ${item.notes && html`<div class="notes">${item.notes}</div>`}
         ${(item.link || (shop && claim)) && html`<div class="item-foot">
-          ${item.link && html`<a class="link-chip" href=${item.link} target="_blank" rel="noopener noreferrer">
-            <${Icon} name="external" size=${14} /> ${M.linkHost(item.link)}</a>`}
+          ${M.allLinks(item).map((l, i) => html`<a class=${`link-chip ${i ? 'alt' : ''}`} href=${l} target="_blank" rel="noopener noreferrer">
+            <${Icon} name="external" size=${14} /> ${M.linkHost(l)}</a>`)}
           ${shop && html`<${ClaimPill} claim=${claim} me=${me} people=${people} />`}
         </div>`}
       </div>
@@ -683,7 +683,7 @@ function ImportSheet({ owner, me, year, list, onClose }) {
   const [text, setText] = useState('');
   const [titles, setTitles] = useState({});
   const [skip, setSkip] = useState({});
-  const have = new Set(list.filter((i) => i.link).map((i) => M.linkKey(i.link)));
+  const have = new Set(list.flatMap((i) => M.allLinks(i)).map((l) => M.linkKey(l)));
   const { drafts, warnings } = M.parsePastedLinks(text);
   const rows = drafts.map((d) => ({ ...d, dupe: have.has(d.key), title: titles[d.key] ?? d.title }));
   const chosen = rows.filter((r) => !r.dupe && !skip[r.key] && r.title.trim());
@@ -762,7 +762,7 @@ function ItemSheet({ item, owner, me, year, nextOrder, onClose, onDelete }) {
   const id = useRef(item?.id || M.newId()).current;
   const created = useRef(!!item);
   const [f, setF] = useState(() => ({
-    title: item?.title || '', link: item?.link || '', notes: item?.notes || '',
+    title: item?.title || '', links: M.allLinks(item).length ? M.allLinks(item) : [''], notes: item?.notes || '',
     price: item?.price != null ? String(item.price) : '', qty: item?.qty || 1,
     size: item?.size || '', color: item?.color || '', priority: !!item?.priority,
   }));
@@ -776,13 +776,14 @@ function ItemSheet({ item, owner, me, year, nextOrder, onClose, onDelete }) {
     const v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     setF((cur) => ({ ...cur, [k]: v }));
   };
-  const linkBad = !!f.link.trim() && !M.normalizeLink(f.link);
+  const setLinks = (fn) => setF((cur) => ({ ...cur, links: fn(cur.links) }));
+  const isBad = (l) => !!l.trim() && !M.normalizeLink(l);
 
   const [status, cancelSave] = useAutosave({ f, thumb }, ({ f, thumb }) => {
     const title = f.title.trim();
     if (!title) return false; // nothing to save until it has a name
     const fields = {
-      title, link: M.normalizeLink(f.link), notes: f.notes.trim(),
+      title, ...M.splitLinks(f.links), notes: f.notes.trim(),
       price: M.parsePrice(f.price), qty: Math.max(1, parseInt(f.qty, 10) || 1),
       size: f.size.trim(), color: f.color.trim(), priority: f.priority,
       thumb: thumb || null, hasPhoto: !!thumb, updatedAt: Date.now(),
@@ -824,10 +825,23 @@ function ItemSheet({ item, owner, me, year, nextOrder, onClose, onDelete }) {
     <form onSubmit=${(e) => e.preventDefault()}>
       <label class="field"><span>What is it?</span>
         <input value=${f.title} onInput=${set('title')} maxlength="120" placeholder="e.g. Cozy slippers" ref=${titleRef} enterkeyhint="done" /></label>
-      <label class="field"><span>Link <em>(optional)</em></span>
-        <input type="text" inputmode="url" autocapitalize="off" autocorrect="off" value=${f.link} onInput=${set('link')}
-          placeholder="Paste a link to the product" />
-        ${linkBad && html`<small class="field-error">That link doesn't look right, so it won't be saved.</small>`}</label>
+      <div class="field"><span>Links <em>(optional)</em></span>
+        ${f.links.map((l, i) => html`<div class="link-edit" key=${i}>
+          <div class="row">
+            <input type="text" inputmode="url" autocapitalize="off" autocorrect="off" value=${l}
+              aria-label=${i === 0 ? 'Primary link' : `Link ${i + 1}`}
+              placeholder=${i === 0 ? 'Paste a link to the product' : 'Another place to buy it'}
+              onInput=${(e) => { const v = e.target.value; setLinks((ls) => ls.map((x, j) => (j === i ? v : x))); }} />
+            ${f.links.length > 1 && html`<button type="button" class="icon-btn" aria-label="Remove link"
+              onClick=${() => setLinks((ls) => ls.filter((_, j) => j !== i))}><${Icon} name="x" size=${18} /></button>`}
+          </div>
+          ${i === 0 && f.links.length > 1 && html`<small class="link-tag">Primary link</small>`}
+          ${i > 0 && l.trim() && !isBad(l) && html`<button type="button" class="link-btn small-link make-primary"
+            onClick=${() => setLinks((ls) => [ls[i], ...ls.filter((_, j) => j !== i)])}><${Icon} name="star" size=${14} /> Make primary</button>`}
+          ${isBad(l) && html`<small class="field-error">That link doesn't look right, so it won't be saved.</small>`}
+        </div>`)}
+        <button type="button" class="link-btn" onClick=${() => setLinks((ls) => [...ls, ''])}><${Icon} name="plus" size=${16} /> Add another link</button>
+      </div>
       <label class="field"><span>Notes <em>(optional)</em></span>
         <textarea rows="3" value=${f.notes} onInput=${set('notes')} maxlength="1000"
           placeholder="Any store, style, or other details"></textarea></label>
