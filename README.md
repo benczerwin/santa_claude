@@ -10,6 +10,7 @@ Family Christmas lists. Everyone adds what they'd like to their own list until t
 - **Items** have a name, link, notes, a ★ "really want this" flag, and optional price, quantity, size, color and a photo. Shoppers can filter by available/mine and by price.
 - **Family tab:** everyone in the group, with their Stocking Theme.
 - **Christmas years:** each year has its own lists, lock date and claims. Pick the year at the top of Home; each phone remembers the last one you viewed. Organizers start a new year in Settings.
+- **Paste links:** on your list, "Paste links from Amazon or other stores" turns pasted product links into items, naming them from the link where possible.
 - **Swipe & drag:** on your list, swipe right to edit, left to delete, and drag the handle to reorder. When shopping, swipe right to claim / mark bought, left to unclaim.
 - **Sample family (demo mode only):** Settings → "Load sample family" fills in made-up people, items and claims (this year and last) to try things out. It replaces everything saved, so it is hidden once Firebase is connected.
 - **Managed lists:** for kids or anyone without a phone. Whoever adds one edits it before the lock and shops it after.
@@ -28,6 +29,15 @@ The lock happens at midnight at the start of the lock date, in each phone's loca
 - Without a Firebase config it runs in **demo mode** (localStorage, this device only). Add `?local` to the URL to force demo mode.
 
 ## Setup
+
+Already done for this repo: Firebase project `santa-claude-08zuk` (Firestore in `nam5`), config in `js/firebase-config.js`, rules deployed. To redeploy rules after editing `firestore.rules`:
+
+```bash
+npx firebase-tools deploy --only firestore:rules
+```
+
+From scratch:
+
 
 1. [Firebase console](https://console.firebase.google.com) → **Add project** (e.g. `santa-claude`; Analytics not needed).
 2. Build → **Firestore Database** → Create database → pick a location → start in **production mode**.

@@ -134,3 +134,67 @@ export const yearOfDoc = (doc, group) => String(doc.year ?? yearList(group).at(-
 
 /** The group as seen for one year: same fields, plus that year's lockDate. */
 export const groupForYear = (group, year) => ({ ...group, year, lockDate: yearsOf(group)[year]?.lockDate });
+
+// ── importing pasted links ──
+
+const titleCase = (s) => s.replace(/\b([a-z])/g, (m) => m.toUpperCase());
+
+function cleanSlug(seg) {
+  let t = seg;
+  try { t = decodeURIComponent(seg); } catch {}
+  t = t.replace(/\.(html?|aspx?|php)$/i, '').replace(/[-_+]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (t.length > 90) t = `${t.slice(0, 90).replace(/\s+\S*$/, '')}…`;
+  return t;
+}
+
+/**
+ * Turns pasted text into item drafts: [{ title, link, key }] plus a list of warnings.
+ * Amazon links keep the product name from the URL; tracking junk is dropped.
+ */
+export function parsePastedLinks(text) {
+  const found = String(text).match(/(?:https?:\/\/|www\.|(?:[a-z0-9-]+\.)+(?:com|co|net|org|ca|co\.uk|de)\/)[^\s<>"']+/gi) || [];
+  const out = [];
+  const warnings = [];
+  const seen = new Set();
+  for (const raw of found) {
+    const href = normalizeLink(raw.replace(/[),.;!?]+$/, ''));
+    if (!href) continue;
+    const u = new URL(href);
+    const host = u.hostname.replace(/^www\.|^smile\./, '');
+    let title = '', link = href, key = href;
+
+    if (/(^|\.)amazon\.[a-z.]+$/.test(host)) {
+      const parts = u.pathname.split('/').filter(Boolean);
+      if (parts.some((p) => /^(wishlist|registry)$/i.test(p)) || /\/hz\/wishlist\//i.test(u.pathname)) {
+        warnings.push('One link is a whole Amazon list. Open it and copy each item\'s link instead.');
+        continue;
+      }
+      const i = parts.findIndex((p) => p === 'dp' || p === 'product');
+      const asin = i >= 0 ? parts[i + 1]?.slice(0, 10) : null;
+      const slug = i > 0 && parts[i - 1] !== 'gp' ? parts[i - 1] : '';
+      title = slug ? cleanSlug(slug) : asin ? `Amazon item ${asin}` : 'Amazon item';
+      link = asin ? `https://www.${host}/${slug ? `${slug}/` : ''}dp/${asin}` : `${u.origin}${u.pathname}`;
+      key = asin ? `amazon:${asin}` : link;
+    } else if (host === 'a.co' || host === 'amzn.to' || host === 'amzn.com') {
+      title = 'Amazon item';
+    } else {
+      const segs = u.pathname.split('/').filter((s) => s && !/^\d+$/.test(s) && !/^(p|dp|product|products|item|ip|s)$/i.test(s));
+      const best = segs.filter((s) => /[a-z]/i.test(s) && /[-_+]/.test(s)).sort((a, b) => b.length - a.length)[0];
+      title = best ? titleCase(cleanSlug(best).toLowerCase()) : `Item from ${host}`;
+    }
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ title, link, key });
+  }
+  return { drafts: out, warnings: [...new Set(warnings)] };
+}
+
+/** Same key parsePastedLinks uses, for spotting links already on a list. */
+export function linkKey(href) {
+  try {
+    const u = new URL(href);
+    const m = u.pathname.match(/\/(?:dp|product)\/([A-Z0-9]{10})/i);
+    if (/amazon\./.test(u.hostname) && m) return `amazon:${m[1]}`;
+  } catch {}
+  return href;
+}

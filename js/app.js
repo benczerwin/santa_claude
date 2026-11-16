@@ -419,8 +419,8 @@ function Setup({ onSignIn, onSample }) {
       <p class="hint">You'll be the organizer and can change the lock date later.</p>
       <button class="btn primary block" disabled=${busy}>Start our lists</button>
     </form>
-    <p class="center muted small">Just looking around?</p>
-    <${SampleButton} onLoaded=${onSample} />
+    ${!store.isLive && html`<p class="center muted small">Just looking around?</p>
+    <${SampleButton} onLoaded=${onSample} />`}
   </main>`;
 }
 
@@ -518,7 +518,7 @@ function Home({ me, group, people, items, claims, now, year, onYear, onSignOut }
   return html`<main class="screen">
     <${PageHeader} eyebrow=${group.name} title=${`Hi, ${firstName(me)}`}
       right=${html`<button class="me-btn" onClick=${onSignOut} aria-label=${`Signed in as ${me.name}. Switch person`}>
-        <${Avatar} person=${me} size=${40} /><small>Not you?</small></button>`} />
+        <${Avatar} person=${me} size=${44} /><small>Not you?</small></button>`} />
     <div class="row wrap year-row"><${YearPicker} group=${group} year=${year} onYear=${onYear} /></div>
     <${LockBanner} group=${group} now=${now} />
 
@@ -550,6 +550,7 @@ function ListScreen({ personId, me, group, people, items, claims, now, year }) {
   const [show, setShow] = useState('all');
   const [maxPrice, setMaxPrice] = useState(null);
   const [picture, setPicture] = useState(false);
+  const [importing, setImporting] = useState(false);
   const list = person ? M.sortItems(items.filter((i) => i.ownerId === person.id)) : [];
   const reorder = useReorder(list.map((i) => i.id), (ids) => {
     ids.forEach((id, i) => { if (list.find((x) => x.id === id)?.order !== i) store.patch('items', id, { order: i }).catch(fail); });
@@ -590,7 +591,8 @@ function ListScreen({ personId, me, group, people, items, claims, now, year }) {
         ${mode === 'edit' && html`<div class="row list-actions">
           <button class="btn primary grow" onClick=${() => setEditing('new')}><${Icon} name="plus" /> Add an item</button>
           <button class="btn magic" onClick=${() => setPicture(true)} aria-label="Share your list as a picture"><${Icon} name="sparkles" /> List</button>
-        </div>`}
+        </div>
+        <button class="link-btn import-link" onClick=${() => setImporting(true)}><${Icon} name="link" size=${16} /> Paste links from Amazon or other stores</button>`}
         ${mode === 'owner' && html`<button class="btn block magic list-actions" onClick=${() => setPicture(true)}><${Icon} name="sparkles" /> Share my list as a picture</button>`}
         ${mode === 'shop' && list.length > 0 && html`<div class="filters">
           <div class="chips">${[['all', 'All'], ['available', 'Available'], ['mine', 'Mine']].map(([k, l]) =>
@@ -611,6 +613,7 @@ function ListScreen({ personId, me, group, people, items, claims, now, year }) {
     ${editing && html`<${ItemSheet} item=${editing === 'new' ? null : editing} owner=${person} me=${me} year=${year}
       nextOrder=${M.nextOrder(list)} onClose=${() => setEditing(null)}
       onDelete=${(id) => deleteItem(items.find((i) => i.id === id) || { id, hasPhoto: true }, claims)} />`}
+    ${importing && html`<${ImportSheet} owner=${person} me=${me} year=${year} list=${list} onClose=${() => setImporting(false)} />`}
     ${picture && html`<${PictureSheet} person=${person} items=${list} year=${year} onClose=${() => setPicture(false)} />`}
   </main>`;
 }
@@ -673,6 +676,53 @@ function ItemRow({ item, mode, me, people, claim, claims, year, onEdit, handle, 
       </div>`}
     </div>
     ${photo && html`<${Lightbox} id=${item.id} onClose=${() => setPhoto(false)} />`}
+  <//>`;
+}
+
+function ImportSheet({ owner, me, year, list, onClose }) {
+  const [text, setText] = useState('');
+  const [titles, setTitles] = useState({});
+  const [skip, setSkip] = useState({});
+  const have = new Set(list.filter((i) => i.link).map((i) => M.linkKey(i.link)));
+  const { drafts, warnings } = M.parsePastedLinks(text);
+  const rows = drafts.map((d) => ({ ...d, dupe: have.has(d.key), title: titles[d.key] ?? d.title }));
+  const chosen = rows.filter((r) => !r.dupe && !skip[r.key] && r.title.trim());
+
+  async function pasteClipboard() {
+    try { const t = await navigator.clipboard.readText(); setText((cur) => (cur ? `${cur}\n${t}` : t)); }
+    catch { toast('Long-press the box and tap Paste instead', 'error'); }
+  }
+  function add() {
+    let order = M.nextOrder(list);
+    const t = Date.now();
+    chosen.forEach((r, i) => {
+      store.put('items', M.newId(), {
+        ownerId: owner.id, year, title: r.title.trim(), link: r.link, notes: '', price: null, qty: 1, size: '', color: '',
+        priority: false, thumb: null, hasPhoto: false, order: order++, createdAt: t + i, addedBy: me.id, updatedAt: t,
+      }).catch(fail);
+    });
+    toast(`Added ${plural(chosen.length, 'item')}. Tap one to add a price or notes.`);
+    onClose();
+  }
+
+  return html`<${Sheet} title="Paste links" onClose=${onClose}>
+    <p class="hint">Copy product links from Amazon (or any store) and paste them here, as many as you like. Each one becomes an item. Short "a.co" links don't include the product name, so rename those below.</p>
+    <label class="field"><span class="row">Links <button type="button" class="link-btn small-link" onClick=${pasteClipboard}>Paste from clipboard</button></span>
+      <textarea rows="4" value=${text} onInput=${(e) => setText(e.target.value)} placeholder="https://www.amazon.com/…"
+        autocapitalize="off" autocorrect="off" spellcheck="false"></textarea></label>
+    ${warnings.map((w) => html`<p class="field-error">${w}</p>`)}
+    ${rows.length > 0 && html`<div class="import-list">
+      ${rows.map((r) => html`<div class=${`import-row ${r.dupe || skip[r.key] ? 'off' : ''}`} key=${r.key}>
+        <input type="checkbox" checked=${!r.dupe && !skip[r.key]} disabled=${r.dupe} aria-label="Include"
+          onChange=${(e) => setSkip({ ...skip, [r.key]: !e.target.checked })} />
+        <div class="grow">
+          <input class="import-title" value=${r.title} disabled=${r.dupe} onInput=${(e) => setTitles({ ...titles, [r.key]: e.target.value })} />
+          <small class="muted">${r.dupe ? 'Already on this list' : M.linkHost(r.link)}</small>
+        </div>
+      </div>`)}
+    </div>`}
+    <button class="btn primary block" disabled=${!chosen.length} onClick=${add}>
+      <${Icon} name="plus" /> ${chosen.length ? `Add ${plural(chosen.length, 'item')}` : 'Add items'}</button>
   <//>`;
 }
 
