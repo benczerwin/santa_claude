@@ -8,10 +8,13 @@ Family Christmas lists. Everyone adds what they'd like to their own list until t
 - **After the lock date:** your list is read-only, and you **never see** what's been claimed or bought on it. Everyone else's lists open for shopping.
 - **Claiming:** tap an item, then "I'll get this". Others see it as "Claimed · Ben". Then "Mark bought", or "Unclaim" to let it go. The 🛒 Shopping tab lists everything you've claimed, with an estimated total.
 - **Items** have a name, link, notes, a ★ "really want this" flag, and optional price, quantity, size, color and a photo. Shoppers can filter by available/mine and by price.
-- **Family tab:** everyone in the group, with a custom label under each name (e.g. "Mom", "Ben's sister").
+- **Family tab:** everyone in the group, with their Stocking Theme.
+- **Christmas years:** each year has its own lists, lock date and claims. Pick the year at the top of Home; each phone remembers the last one you viewed. Organizers start a new year in Settings.
+- **Swipe & drag:** on your list, swipe right to edit, left to delete, and drag the handle to reorder. When shopping, swipe right to claim / mark bought, left to unclaim.
+- **Sample family:** Settings → "Load sample family" fills in made-up people, items and claims (this year and last) to try things out. It replaces everything saved.
 - **Managed lists:** for kids or anyone without a phone. Whoever adds one edits it before the lock and shops it after.
-- **Sign-in:** tap your name and the phone remembers you. A 4-digit PIN is optional (Settings), and an organizer can remove a forgotten one from the Family tab.
-- **Organizers** (the person who set it up, plus anyone they promote) change the lock date, edit or remove people, and can clear all lists for next year.
+- **Sign-in:** tap your name (or "I'm new, sign me up") and the phone remembers you. "Not you?" on Home switches person.
+- **Organizers** (the person who set it up, plus anyone they promote) change the lock date, edit or remove people, and start or delete years.
 
 The lock happens at midnight at the start of the lock date, in each phone's local time.
 
@@ -46,7 +49,9 @@ Then open http://localhost:8124.
 | Path | What |
 | --- | --- |
 | `js/app.js` | All screens & UI |
-| `js/model.js` | Lock date, permissions, PINs, links, formatting |
+| `js/model.js` | Lock date, years, permissions, links, formatting |
+| `js/icons.js` | SVG line icons |
+| `js/sample.js` | Sample family data |
 | `js/store*.js` | Firestore / local-demo backends |
 | `js/photo.js` | On-device photo shrinking |
 | `css/styles.css` | Styles |
@@ -55,8 +60,8 @@ Then open http://localhost:8124.
 
 | Collection | Doc |
 | --- | --- |
-| `settings/group` | `name`, `lockDate` (YYYY-MM-DD), `admins` |
-| `people/{id}` | `name`, `label`, `avatar`, `pinHash` (or null), `managedBy` (or null) |
-| `items/{id}` | `ownerId`, `title`, `link`, `notes`, `priority`, `price`, `qty`, `size`, `color`, `thumb` |
-| `claims/{itemId}` | `claimerId`, `ownerId`, `status` (`claimed` / `bought`) |
+| `settings/group` | `name`, `admins`, `years: { '2026': { lockDate } }` |
+| `people/{id}` | `name`, `label` (Stocking Theme), `avatar`, `managedBy` (or null) |
+| `items/{id}` | `ownerId`, `year`, `order`, `title`, `link`, `notes`, `priority`, `price`, `qty`, `size`, `color`, `thumb` |
+| `claims/{itemId}` | `claimerId`, `ownerId`, `year`, `status` (`claimed` / `bought`) |
 | `photos/{itemId}` | `full` (JPEG data URL) |

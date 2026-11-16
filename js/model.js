@@ -1,6 +1,11 @@
-// Pure rules for lists: lock date, who sees what, PINs, links, formatting.
+// Pure rules for lists: lock date, who sees what, links, formatting.
 
-export const AVATARS = ['🎅', '🤶', '🦌', '⛄', '🎄', '🍪', '🧦', '🔔', '⭐', '🎁', '🐧', '🧸', '🐻‍❄️', '🦊', '🍭', '❄️'];
+export const AVATARS = [
+  '🎅', '🤶', '🧑‍🎄', '🦌', '⛄', '🎄', '🍪', '🧦', '🔔', '⭐', '🎁', '🎀', '🕯️', '❄️', '🍭', '☕',
+  '🐧', '🧸', '🐻‍❄️', '🦊', '🦉', '🐶', '🐱', '🐰', '🐻', '🐼', '🐨', '🦁', '🐯', '🐸', '🐵', '🦄',
+  '🐢', '🐙', '🦖', '🐳', '🦋', '🐝', '🌻', '🌵', '🍄', '🌈', '🍕', '🧁', '🍩', '🍓', '🥑', '🌮',
+  '🚀', '🎸', '🎹', '🎨', '📚', '🎮', '⚽', '🏀', '⛳', '🎣', '🏔️', '🏖️', '👑', '🤖', '👻', '🧙',
+];
 
 export const newId = (n = 12) => {
   const abc = 'abcdefghijkmnpqrstuvwxyz23456789';
@@ -58,8 +63,18 @@ export function listMode(me, person, group, now = Date.now()) {
 
 // ── items ──
 
+/** List order as the owner arranged it (drag to reorder); items never reordered go last, oldest first. */
 export function sortItems(items) {
-  return [...items].sort((a, b) => (b.priority ? 1 : 0) - (a.priority ? 1 : 0) || (a.createdAt || 0) - (b.createdAt || 0));
+  const key = (i) => (typeof i.order === 'number' ? [0, i.order] : [1, i.createdAt || 0]);
+  return [...items].sort((a, b) => { const x = key(a), y = key(b); return x[0] - y[0] || x[1] - y[1]; });
+}
+
+export const nextOrder = (items) => items.reduce((m, i) => Math.max(m, typeof i.order === 'number' ? i.order + 1 : 0), 0);
+
+/** Local YYYY-MM-DD, `days` from now. */
+export function isoDate(days = 0, now = new Date()) {
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 export function normalizeLink(raw) {
@@ -99,19 +114,20 @@ export function itemMeta(item) {
   ].filter(Boolean).join(' · ');
 }
 
-// ── PINs ──
-// Light protection against peeking, not real security: anyone with the Firebase config could read the data.
+// ── Christmas years ──
+// settings/group.years = { '2026': { lockDate: '2026-12-01' }, ... }. Older docs only had group.lockDate.
 
-export async function hashPin(personId, pin) {
-  const text = `santa-claude|${personId}|${pin}`;
-  if (crypto?.subtle) {
-    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-    return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
-  }
-  // Non-secure context (e.g. LAN IP over http): FNV-1a fallback.
-  let h = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
-  return `fnv-${h.toString(16)}`;
+export function yearsOf(group) {
+  if (group?.years && Object.keys(group.years).length) return group.years;
+  const y = group?.lockDate?.slice(0, 4) || String(new Date().getFullYear());
+  return { [y]: { lockDate: group?.lockDate || `${y}-12-01` } };
 }
 
-export const validPin = (pin) => /^\d{4}$/.test(pin);
+/** Newest first. */
+export const yearList = (group) => Object.keys(yearsOf(group)).sort((a, b) => b.localeCompare(a));
+
+/** Items/claims saved before years existed belong to the oldest year. */
+export const yearOfDoc = (doc, group) => String(doc.year ?? yearList(group).at(-1));
+
+/** The group as seen for one year: same fields, plus that year's lockDate. */
+export const groupForYear = (group, year) => ({ ...group, year, lockDate: yearsOf(group)[year]?.lockDate });
