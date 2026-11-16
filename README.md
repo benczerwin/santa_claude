@@ -11,7 +11,7 @@ Family Christmas lists. Everyone adds what they'd like to their own list until t
 - **Family tab:** everyone in the group, with their Stocking Theme.
 - **Christmas years:** each year has its own lists, lock date and claims. Pick the year at the top of Home; each phone remembers the last one you viewed. Organizers start a new year in Settings.
 - **Swipe & drag:** on your list, swipe right to edit, left to delete, and drag the handle to reorder. When shopping, swipe right to claim / mark bought, left to unclaim.
-- **Sample family:** Settings → "Load sample family" fills in made-up people, items and claims (this year and last) to try things out. It replaces everything saved.
+- **Sample family (demo mode only):** Settings → "Load sample family" fills in made-up people, items and claims (this year and last) to try things out. It replaces everything saved, so it is hidden once Firebase is connected.
 - **Managed lists:** for kids or anyone without a phone. Whoever adds one edits it before the lock and shops it after.
 - **Sign-in:** tap your name (or "I'm new, sign me up") and the phone remembers you. "Not you?" on Home switches person.
 - **Organizers** (the person who set it up, plus anyone they promote) change the lock date, edit or remove people, and start or delete years.

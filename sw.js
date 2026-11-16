@@ -1,5 +1,5 @@
 // Network-first app shell cache: always fresh when online, still opens with bad signal (e.g. in a store).
-const CACHE = 'santa-claude-v4';
+const CACHE = 'santa-claude-v6';
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil((async () => {

@@ -185,12 +185,34 @@ function useAutosave(value, save, { enabled = true } = {}) {
   return [status, cancel];
 }
 
+/** First emoji in a string (handles skin tones, ZWJ sequences and flags), or ''. */
+function firstEmoji(text) {
+  const parts = 'Segmenter' in Intl
+    ? Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text), (x) => x.segment)
+    : Array.from(text);
+  return parts.find((g) => /\p{Extended_Pictographic}|\p{Regional_Indicator}/u.test(g)) || '';
+}
+
 function AvatarPicker({ value, onChange }) {
+  const custom = value && !M.AVATARS.includes(value);
+  const [text, setText] = useState('');
   return html`<div class="field"><span>Icon</span>
     <div class="avatar-pick" role="radiogroup" aria-label="Pick an icon">
+      ${custom && html`<button type="button" role="radio" aria-checked="true" class="on">${value}</button>`}
       ${M.AVATARS.map((a) => html`<button type="button" role="radio" aria-checked=${a === value}
         class=${a === value ? 'on' : ''} onClick=${() => onChange(a)}>${a}</button>`)}
-    </div></div>`;
+    </div>
+    <label class="emoji-own">
+      <span>Or use your own</span>
+      <input value=${text} placeholder="Type any emoji" autocomplete="off" autocorrect="off" spellcheck="false"
+        enterkeyhint="done" onInput=${(e) => {
+          const em = firstEmoji(e.target.value);
+          setText(em);
+          e.target.value = em;
+          if (em) onChange(em);
+        }} />
+    </label>
+  </div>`;
 }
 
 // ───────────────────────── swipe & drag ─────────────────────────
@@ -567,9 +589,9 @@ function ListScreen({ personId, me, group, people, items, claims, now, year }) {
         <p class="intro">${intro}</p>
         ${mode === 'edit' && html`<div class="row list-actions">
           <button class="btn primary grow" onClick=${() => setEditing('new')}><${Icon} name="plus" /> Add an item</button>
-          <button class="btn" onClick=${() => setPicture(true)} aria-label="Share as a picture"><${Icon} name="image" /> Picture</button>
+          <button class="btn magic" onClick=${() => setPicture(true)} aria-label="Share your list as a picture"><${Icon} name="sparkles" /> List</button>
         </div>`}
-        ${mode === 'owner' && html`<button class="btn block list-actions" onClick=${() => setPicture(true)}><${Icon} name="image" /> Share my list as a picture</button>`}
+        ${mode === 'owner' && html`<button class="btn block magic list-actions" onClick=${() => setPicture(true)}><${Icon} name="sparkles" /> Share my list as a picture</button>`}
         ${mode === 'shop' && list.length > 0 && html`<div class="filters">
           <div class="chips">${[['all', 'All'], ['available', 'Available'], ['mine', 'Mine']].map(([k, l]) =>
             html`<button class=${`chip ${show === k ? 'on' : ''}`} onClick=${() => setShow(k)}>${l}</button>`)}</div>
@@ -820,7 +842,7 @@ function Shopping({ me, group, people, items, claims, now, year }) {
   return html`<main class="screen">
     <${PageHeader} eyebrow=${`Christmas ${year}`} title="My shopping" />
     ${mine.length > 0 && html`<p class="intro">Swipe right to mark bought, left to unclaim.</p>
-      <button class="btn block list-actions" disabled=${exporting} onClick=${exportExcel}>
+      <button class="btn block excel list-actions" disabled=${exporting} onClick=${exportExcel}>
         <${Icon} name="sheet" /> ${exporting ? 'Making spreadsheet…' : 'Export to Excel'}</button>`}
     ${!mine.length
       ? html`<p class="muted empty">${M.isLocked(group, now)
@@ -1016,7 +1038,7 @@ function Settings({ me, group, rawGroup, people, items, claims, now, year, onYea
         <input value=${group.name} onChange=${(e) => saveName(e.target.value)} maxlength="40" /></label>
     </section>`}
 
-    ${(admin || !store.isLive) && html`<section class="panel">
+    ${!store.isLive && html`<section class="panel">
       <h2>Try it out</h2>
       <p class="hint">Replace everything with a made-up family (with this year and last year) to see how it all works. Use "Switch person" to see it as someone else.</p>
       <${SampleButton} onLoaded=${onSample} class="btn" />
