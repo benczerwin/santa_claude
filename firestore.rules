@@ -1,0 +1,11 @@
+rules_version = '2';
+// Open access for a private family app (same approach as the comic con hunt).
+// Don't post the site URL publicly. Bump the date each year to keep it working.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{collection}/{id} {
+      allow read, write: if collection in ['settings', 'people', 'items', 'claims', 'photos']
+        && request.time < timestamp.date(2027, 3, 1);
+    }
+  }
+}
