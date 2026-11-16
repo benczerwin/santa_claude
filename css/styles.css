@@ -335,7 +335,7 @@ input, textarea, select { font-size: 16px; } /* stops iOS zooming on focus */
 .sheet-head h2 { margin: 0; font-size: 1.15rem; font-weight: 900; flex: 1; min-width: 0; }
 .sheet-status { color: var(--muted); font-size: 0.8rem; font-weight: 700; white-space: nowrap; }
 .done-btn {
-  background: var(--red-soft); color: var(--red); border: 0; border-radius: 999px;
+  background: var(--green); color: #fff; border: 0; border-radius: 999px;
   padding: 7px 14px; font-weight: 900; font-size: 0.9rem;
 }
 .field-error { display: block; color: var(--red); font-weight: 700; margin-top: 6px; }
@@ -390,3 +390,11 @@ input, textarea, select { font-size: 16px; } /* stops iOS zooming on focus */
   box-shadow: var(--shadow); max-width: 100%; animation: up 0.2s ease-out;
 }
 .toast.error { background: var(--red); }
+
+.item-row.tappable { cursor: pointer; }
+.item-row.tappable:active { background: #fffaf2; }
+.list-actions { margin: 0 0 12px !important; }
+.list-actions .btn { margin: 0; }
+.delete-btn { margin-top: 18px !important; border-color: var(--red-soft); background: var(--red-soft); }
+.picture-preview { background: var(--paper); border-radius: 14px; padding: 10px; min-height: 160px; display: grid; place-items: center; }
+.picture-preview img { width: 100%; height: auto; border-radius: 10px; box-shadow: var(--shadow); display: block; }

@@ -4,6 +4,7 @@ import * as M from './model.js';
 import { processPhoto } from './photo.js';
 import { iconSVG } from './icons.js';
 import { loadSample } from './sample.js';
+import { listPicture, shoppingWorkbook, shareOrDownload, loadXLSX } from './export.js';
 
 // ───────────────────────── helpers & hooks ─────────────────────────
 
@@ -180,7 +181,8 @@ function useAutosave(value, save, { enabled = true } = {}) {
     timer.current = setTimeout(flush, 500);
   }, [JSON.stringify(value)]);
   useEffect(() => () => flush(), []);
-  return status;
+  const cancel = () => { clearTimeout(timer.current); timer.current = null; dirty.current = false; };
+  return [status, cancel];
 }
 
 function AvatarPicker({ value, onChange }) {
@@ -223,10 +225,12 @@ function SwipeRow({ left, right, class: cls = '', style, rowRef, children }) {
     setDx(Math.sign(v) * (a < 120 ? a : 120 + (a - 120) * 0.25));
     s.dx = v;
   };
+  const swipedAt = useRef(0);
   const up = () => {
     const s = st.current;
     st.current = null;
     if (s?.active) {
+      swipedAt.current = Date.now();
       if (s.dx >= TRIGGER) left?.onAction();
       else if (s.dx <= -TRIGGER) right?.onAction();
     }
@@ -236,7 +240,8 @@ function SwipeRow({ left, right, class: cls = '', style, rowRef, children }) {
   const side = dx > 0 ? left : dx < 0 ? right : null;
   const armed = Math.abs(dx) >= TRIGGER;
   return html`<div class=${`swipe ${cls}`} style=${style} ref=${(el) => { elRef.current = el; rowRef?.(el); }}
-      onPointerDown=${down} onPointerMove=${move} onPointerUp=${up} onPointerCancel=${up}>
+      onPointerDown=${down} onPointerMove=${move} onPointerUp=${up} onPointerCancel=${up}
+      onClickCapture=${(e) => { if (Date.now() - swipedAt.current < 400) { e.stopPropagation(); e.preventDefault(); } }}>
     ${side && html`<div class=${`swipe-bg ${dx > 0 ? 'from-left' : 'from-right'} tone-${side.tone} ${armed ? 'armed' : ''}`}>
       <${Icon} name=${side.icon} /><span>${side.label}</span></div>`}
     <div class=${`swipe-fg ${dx === 0 ? 'settle' : ''}`} style=${dx ? `transform:translateX(${dx}px)` : ''}>${children}</div>
@@ -522,6 +527,7 @@ function ListScreen({ personId, me, group, people, items, claims, now, year }) {
   const [editing, setEditing] = useState(null); // null | 'new' | item
   const [show, setShow] = useState('all');
   const [maxPrice, setMaxPrice] = useState(null);
+  const [picture, setPicture] = useState(false);
   const list = person ? M.sortItems(items.filter((i) => i.ownerId === person.id)) : [];
   const reorder = useReorder(list.map((i) => i.id), (ids) => {
     ids.forEach((id, i) => { if (list.find((x) => x.id === id)?.order !== i) store.patch('items', id, { order: i }).catch(fail); });
@@ -559,7 +565,11 @@ function ListScreen({ personId, me, group, people, items, claims, now, year }) {
         </div>`
       : html`
         <p class="intro">${intro}</p>
-        ${mode === 'edit' && html`<button class="btn primary block" onClick=${() => setEditing('new')}><${Icon} name="plus" /> Add an item</button>`}
+        ${mode === 'edit' && html`<div class="row list-actions">
+          <button class="btn primary grow" onClick=${() => setEditing('new')}><${Icon} name="plus" /> Add an item</button>
+          <button class="btn" onClick=${() => setPicture(true)} aria-label="Share as a picture"><${Icon} name="image" /> Picture</button>
+        </div>`}
+        ${mode === 'owner' && html`<button class="btn block list-actions" onClick=${() => setPicture(true)}><${Icon} name="image" /> Share my list as a picture</button>`}
         ${mode === 'shop' && list.length > 0 && html`<div class="filters">
           <div class="chips">${[['all', 'All'], ['available', 'Available'], ['mine', 'Mine']].map(([k, l]) =>
             html`<button class=${`chip ${show === k ? 'on' : ''}`} onClick=${() => setShow(k)}>${l}</button>`)}</div>
@@ -577,7 +587,9 @@ function ListScreen({ personId, me, group, people, items, claims, now, year }) {
       `}
 
     ${editing && html`<${ItemSheet} item=${editing === 'new' ? null : editing} owner=${person} me=${me} year=${year}
-      nextOrder=${M.nextOrder(list)} onClose=${() => setEditing(null)} />`}
+      nextOrder=${M.nextOrder(list)} onClose=${() => setEditing(null)}
+      onDelete=${(id) => deleteItem(items.find((i) => i.id === id) || { id, hasPhoto: true }, claims)} />`}
+    ${picture && html`<${PictureSheet} person=${person} items=${list} year=${year} onClose=${() => setPicture(false)} />`}
   </main>`;
 }
 
@@ -616,7 +628,8 @@ function ItemRow({ item, mode, me, people, claim, claims, year, onEdit, handle, 
 
   return html`<${SwipeRow} left=${left} right=${right} rowRef=${rowRef} style=${style}
       class=${`item ${takenByOther ? 'taken' : ''} ${item.priority ? 'star' : ''} ${dragging ? 'dragging' : ''}`}>
-    <div class="item-row">
+    <div class=${`item-row ${edit ? 'tappable' : ''}`}
+      onClick=${edit ? (e) => { if (!e.target.closest('a, button')) onEdit(); } : null}>
       ${handle && html`<button class="handle" aria-label="Drag to reorder" ...${handle}><${Icon} name="grip" /></button>`}
       ${item.thumb && html`<button class="thumb-btn" onClick=${() => item.hasPhoto && setPhoto(true)} aria-label="View photo">
         <img class="thumb" src=${item.thumb} alt="" /></button>`}
@@ -630,17 +643,38 @@ function ItemRow({ item, mode, me, people, claim, claims, year, onEdit, handle, 
           ${shop && html`<${ClaimPill} claim=${claim} me=${me} people=${people} />`}
         </div>`}
       </div>
-      <div class="row-actions">
-        ${edit && html`
-          <button class="icon-btn" onClick=${onEdit} aria-label="Edit"><${Icon} name="pencil" /></button>
-          <button class="icon-btn danger" onClick=${del} aria-label="Delete"><${Icon} name="trash" /></button>`}
-        ${shop && !claim && html`<button class="act claim" onClick=${() => claimItem(item, me, year)}><${Icon} name="gift" size=${18} /><small>Claim</small></button>`}
-        ${shop && mine && html`<button class=${`act ${claim.status === 'bought' ? 'done' : 'buy'}`}
+      ${shop && html`<div class="row-actions">
+        ${!claim && html`<button class="act claim" onClick=${() => claimItem(item, me, year)}><${Icon} name="gift" size=${18} /><small>Claim</small></button>`}
+        ${mine && html`<button class=${`act ${claim.status === 'bought' ? 'done' : 'buy'}`}
           onClick=${() => setBought(item, claim.status !== 'bought')}><${Icon} name="check" size=${18} />
           <small>${claim.status === 'bought' ? 'Bought' : 'Bought?'}</small></button>`}
-      </div>
+      </div>`}
     </div>
     ${photo && html`<${Lightbox} id=${item.id} onClose=${() => setPhoto(false)} />`}
+  <//>`;
+}
+
+function PictureSheet({ person, items, year, onClose }) {
+  const [blob, setBlob] = useState(null);
+  const [url, setUrl] = useState(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    let u = null;
+    listPicture({ person, items, year })
+      .then((b) => { setBlob(b); u = URL.createObjectURL(b); setUrl(u); })
+      .catch((e) => setErr(e.message));
+    return () => u && URL.revokeObjectURL(u);
+  }, []);
+  const name = `${firstName(person)}'s Christmas list ${year}.png`;
+  return html`<${Sheet} title="Your list as a picture" onClose=${onClose}>
+    <div class="picture-preview">
+      ${url ? html`<img src=${url} alt=${`${person.name}'s Christmas list`} />` : html`<p class="muted center">${err || 'Making your picture…'}</p>`}
+    </div>
+    <button class="btn primary block" disabled=${!blob} onClick=${async () => {
+      const r = await shareOrDownload(blob, name, `${firstName(person)}'s Christmas list`);
+      if (r === 'downloaded') toast('Picture downloaded');
+    }}><${Icon} name="share" /> Share or save</button>
+    <p class="hint center">On iPhone, tap Share then "Save Image" to put it in Photos.</p>
   <//>`;
 }
 
@@ -652,7 +686,7 @@ function Lightbox({ id, onClose }) {
   </div>`;
 }
 
-function ItemSheet({ item, owner, me, year, nextOrder, onClose }) {
+function ItemSheet({ item, owner, me, year, nextOrder, onClose, onDelete }) {
   const id = useRef(item?.id || M.newId()).current;
   const created = useRef(!!item);
   const [f, setF] = useState(() => ({
@@ -672,7 +706,7 @@ function ItemSheet({ item, owner, me, year, nextOrder, onClose }) {
   };
   const linkBad = !!f.link.trim() && !M.normalizeLink(f.link);
 
-  const status = useAutosave({ f, thumb }, ({ f, thumb }) => {
+  const [status, cancelSave] = useAutosave({ f, thumb }, ({ f, thumb }) => {
     const title = f.title.trim();
     if (!title) return false; // nothing to save until it has a name
     const fields = {
@@ -748,6 +782,12 @@ function ItemSheet({ item, owner, me, year, nextOrder, onClose }) {
         ${thumb && html`<button type="button" class="btn" onClick=${removePhoto}>Remove</button>`}
       </div>
       <p class="hint">Changes save automatically. Swipe down or tap Done when you're finished.</p>
+      ${(item || f.title.trim()) && html`<button type="button" class="btn danger block delete-btn" onClick=${() => {
+        if (!confirm(`Delete "${f.title.trim() || item?.title || 'this item'}"?`)) return;
+        cancelSave();
+        if (created.current) onDelete(id);
+        onClose();
+      }}><${Icon} name="trash" /> Delete item</button>`}
     </form>
   <//>`;
 }
@@ -755,6 +795,21 @@ function ItemSheet({ item, owner, me, year, nextOrder, onClose }) {
 // ───────────────────────── shopping ─────────────────────────
 
 function Shopping({ me, group, people, items, claims, now, year }) {
+  const [exporting, setExporting] = useState(false);
+  useEffect(() => { loadXLSX().catch(() => {}); }, []); // warm up so the share sheet opens straight away
+  async function exportExcel() {
+    setExporting(true);
+    try {
+      const rows = mine.map(({ c, item }) => ({ claim: c, item, person: people.find((p) => p.id === item.ownerId) || { name: '?' } }));
+      const blob = await shoppingWorkbook(rows, { year, shopper: me });
+      const r = await shareOrDownload(blob, `Christmas ${year} shopping - ${firstName(me)}.xlsx`, `Christmas ${year} shopping`);
+      if (r === 'downloaded') toast('Spreadsheet downloaded');
+    } catch (e) {
+      toast("Couldn't make the spreadsheet. Check your connection and try again.", 'error');
+    } finally {
+      setExporting(false);
+    }
+  }
   const mine = claims.filter((c) => c.claimerId === me.id)
     .map((c) => ({ c, item: items.find((i) => i.id === c.id) })).filter((x) => x.item);
   const toBuy = mine.filter((x) => x.c.status !== 'bought');
@@ -764,7 +819,9 @@ function Shopping({ me, group, people, items, claims, now, year }) {
 
   return html`<main class="screen">
     <${PageHeader} eyebrow=${`Christmas ${year}`} title="My shopping" />
-    ${mine.length > 0 && html`<p class="intro">Swipe right to mark bought, left to unclaim.</p>`}
+    ${mine.length > 0 && html`<p class="intro">Swipe right to mark bought, left to unclaim.</p>
+      <button class="btn block list-actions" disabled=${exporting} onClick=${exportExcel}>
+        <${Icon} name="sheet" /> ${exporting ? 'Making spreadsheet…' : 'Export to Excel'}</button>`}
     ${!mine.length
       ? html`<p class="muted empty">${M.isLocked(group, now)
           ? "You haven't claimed anything yet. Open someone's list and swipe right on an item to claim it."
@@ -807,7 +864,7 @@ function Shopping({ me, group, people, items, claims, now, year }) {
 function PersonSheet({ person, title, onSave, onClose, children }) {
   const [d, setD] = useState({ name: person?.name || '', label: person?.label || '', avatar: person?.avatar || '🧸' });
   const set = (k) => (v) => setD((cur) => ({ ...cur, [k]: v }));
-  const status = useAutosave(d, (d) => {
+  const [status] = useAutosave(d, (d) => {
     const name = d.name.trim();
     if (!name) return false;
     onSave({ name, label: d.label.trim(), avatar: d.avatar });
