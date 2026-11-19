@@ -47,30 +47,20 @@ const DISPLAY = '"Mountains of Christmas", Georgia, serif';
 const BODY = 'Nunito, system-ui, -apple-system, sans-serif';
 const MAX_ITEMS = 30;
 
-function wrap(ctx, text, maxW, maxLines) {
-  const words = String(text).split(/\s+/).filter(Boolean);
-  const lines = [];
-  let line = '';
-  for (const w of words) {
-    const test = line ? `${line} ${w}` : w;
-    if (ctx.measureText(test).width <= maxW || !line) line = test;
-    else { lines.push(line); line = w; }
-  }
-  if (line) lines.push(line);
-  if (lines.length > maxLines) {
-    const kept = lines.slice(0, maxLines);
-    let last = kept[maxLines - 1];
-    while (last && ctx.measureText(`${last}…`).width > maxW) last = last.slice(0, -1);
-    kept[maxLines - 1] = `${last.trimEnd()}…`;
-    return kept;
-  }
-  // a single very long word
-  return lines.map((l) => {
-    if (ctx.measureText(l).width <= maxW) return l;
-    let s = l;
-    while (s && ctx.measureText(`${s}…`).width > maxW) s = s.slice(0, -1);
-    return `${s}…`;
-  });
+/**
+ * One line, never wrapped: shrinks the font from maxPx toward minPx until it fits,
+ * then trims with "…" if it still doesn't. -> { text, font }
+ */
+function fitLine(ctx, text, maxW, style, maxPx, minPx) {
+  const t = String(text).replace(/\s+/g, ' ').trim();
+  let px = maxPx;
+  const font = () => `${style} ${px}px ${BODY}`;
+  ctx.font = font();
+  while (px > minPx && ctx.measureText(t).width > maxW) { px -= 1; ctx.font = font(); }
+  if (ctx.measureText(t).width <= maxW) return { text: t, font: font() };
+  let cut = t;
+  while (cut && ctx.measureText(`${cut}…`).width > maxW) cut = cut.slice(0, -1);
+  return { text: `${cut.trimEnd()}…`, font: font() };
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -96,17 +86,14 @@ function star(ctx, cx, cy, r) {
 /** Lays out every row; returns heights so the canvas can be sized before drawing. */
 function layout(ctx, items) {
   return items.map((it) => {
-    ctx.font = `800 40px ${BODY}`;
-    const title = wrap(ctx, it.title, TEXT_W, 2);
-    ctx.font = `700 29px ${BODY}`;
-    const meta = M.itemMeta(it);
+    const title = fitLine(ctx, it.title, TEXT_W, '800', 40, 30);
     const all = M.allLinks(it);
     const link = all.length ? `${M.linkHost(all[0])}${all.length > 1 ? ` +${all.length - 1}` : ''}` : '';
-    const metaLine = [meta, link].filter(Boolean).join(' · ');
-    ctx.font = `italic 600 29px ${BODY}`;
-    const notes = it.notes ? wrap(ctx, it.notes, TEXT_W, 2) : [];
-    const h = 34 + title.length * 50 + (metaLine ? 40 : 0) + notes.length * 38 + 30;
-    return { it, title, metaLine, notes, h };
+    const metaLine = [M.itemMeta(it), link].filter(Boolean).join(' · ');
+    const meta = metaLine ? fitLine(ctx, metaLine, TEXT_W, '700', 29, 24) : null;
+    const notes = it.notes ? fitLine(ctx, it.notes, TEXT_W, 'italic 600', 29, 24) : null;
+    const h = 34 + 50 + (meta ? 40 : 0) + (notes ? 38 : 0) + 30;
+    return { it, title, meta, notes, h };
   });
 }
 
@@ -177,9 +164,10 @@ export async function listPicture({ person, items, year }) {
   ctx.fillStyle = '#ffe2a6';
   ctx.fillText(`CHRISTMAS ${year}  ·  ${items.length} WISH${items.length === 1 ? '' : 'ES'}`, W / 2, 410);
   if (person.label) {
-    ctx.font = `700 32px ${BODY}`;
+    const theme = fitLine(ctx, `Stocking Theme: ${person.label}`, W - PAD * 2, '700', 32, 24);
+    ctx.font = theme.font;
     ctx.fillStyle = '#fff';
-    ctx.fillText(`Stocking Theme: ${person.label}`, W / 2, 466);
+    ctx.fillText(theme.text, W / 2, 466);
   }
 
   // card
@@ -226,18 +214,20 @@ export async function listPicture({ person, items, year }) {
       ctx.textBaseline = 'alphabetic';
     }
     ctx.fillStyle = '#2a1d18';
-    ctx.font = `800 40px ${BODY}`;
-    for (const line of r.title) { ctx.fillText(line, TEXT_X, ty); ty += 50; }
-    if (r.metaLine) {
+    ctx.font = r.title.font;
+    ctx.fillText(r.title.text, TEXT_X, ty);
+    ty += 50;
+    if (r.meta) {
       ctx.fillStyle = '#c42b32';
-      ctx.font = `700 29px ${BODY}`;
-      ctx.fillText(wrap(ctx, r.metaLine, TEXT_W, 1)[0], TEXT_X, ty - 8);
+      ctx.font = r.meta.font;
+      ctx.fillText(r.meta.text, TEXT_X, ty - 8);
       ty += 40;
     }
-    if (r.notes.length) {
+    if (r.notes) {
       ctx.fillStyle = '#7a6a60';
-      ctx.font = `italic 600 29px ${BODY}`;
-      for (const line of r.notes) { ctx.fillText(line, TEXT_X, ty - 8); ty += 38; }
+      ctx.font = r.notes.font;
+      ctx.fillText(r.notes.text, TEXT_X, ty - 8);
+      ty += 38;
     }
     y = top + r.h;
     if (i < rows.length - 1) {
