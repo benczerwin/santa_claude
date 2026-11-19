@@ -47,20 +47,30 @@ const DISPLAY = '"Mountains of Christmas", Georgia, serif';
 const BODY = 'Nunito, system-ui, -apple-system, sans-serif';
 const MAX_ITEMS = 30;
 
-/**
- * One line, never wrapped: shrinks the font from maxPx toward minPx until it fits,
- * then trims with "…" if it still doesn't. -> { text, font }
- */
-function fitLine(ctx, text, maxW, style, maxPx, minPx) {
-  const t = String(text).replace(/\s+/g, ' ').trim();
-  let px = maxPx;
-  const font = () => `${style} ${px}px ${BODY}`;
-  ctx.font = font();
-  while (px > minPx && ctx.measureText(t).width > maxW) { px -= 1; ctx.font = font(); }
-  if (ctx.measureText(t).width <= maxW) return { text: t, font: font() };
-  let cut = t;
-  while (cut && ctx.measureText(`${cut}…`).width > maxW) cut = cut.slice(0, -1);
-  return { text: `${cut.trimEnd()}…`, font: font() };
+/** Wraps text onto as many lines as it needs (no "…"); very long words are split. -> { font, lines } */
+function wrapAll(ctx, text, maxW, font, maxLines = 14) {
+  ctx.font = font;
+  const words = String(text).replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  const lines = [];
+  let line = '';
+  const push = (w) => {
+    // split a word wider than the line into pieces that fit
+    while (ctx.measureText(w).width > maxW) {
+      let i = w.length - 1;
+      while (i > 1 && ctx.measureText(w.slice(0, i)).width > maxW) i--;
+      lines.push(w.slice(0, i));
+      w = w.slice(i);
+    }
+    return w;
+  };
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width <= maxW) { line = test; continue; }
+    if (line) lines.push(line);
+    line = push(word);
+  }
+  if (line) lines.push(line);
+  return { font, lines: lines.slice(0, maxLines) };
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -86,13 +96,13 @@ function star(ctx, cx, cy, r) {
 /** Lays out every row; returns heights so the canvas can be sized before drawing. */
 function layout(ctx, items) {
   return items.map((it) => {
-    const title = fitLine(ctx, it.title, TEXT_W, '800', 40, 30);
+    const title = wrapAll(ctx, it.title, TEXT_W, `800 40px ${BODY}`);
     const all = M.allLinks(it);
     const link = all.length ? `${M.linkHost(all[0])}${all.length > 1 ? ` +${all.length - 1}` : ''}` : '';
     const metaLine = [M.itemMeta(it), link].filter(Boolean).join(' · ');
-    const meta = metaLine ? fitLine(ctx, metaLine, TEXT_W, '700', 29, 24) : null;
-    const notes = it.notes ? fitLine(ctx, it.notes, TEXT_W, 'italic 600', 29, 24) : null;
-    const h = 34 + 50 + (meta ? 40 : 0) + (notes ? 38 : 0) + 30;
+    const meta = metaLine ? wrapAll(ctx, metaLine, TEXT_W, `700 29px ${BODY}`) : null;
+    const notes = it.notes ? wrapAll(ctx, it.notes, TEXT_W, `italic 600 29px ${BODY}`) : null;
+    const h = 34 + title.lines.length * 50 + (meta ? meta.lines.length * 40 : 0) + (notes ? notes.lines.length * 38 : 0) + 30;
     return { it, title, meta, notes, h };
   });
 }
@@ -111,7 +121,8 @@ export async function listPicture({ person, items, year }) {
   const rows = layout(ctx, shown);
   const extra = items.length - shown.length;
 
-  const headerH = 470 + (person.label ? 60 : 0);
+  const theme = person.label ? wrapAll(ctx, `Stocking Theme: ${person.label}`, W - PAD * 2, `700 32px ${BODY}`, 3) : null;
+  const headerH = 470 + (theme ? 20 + theme.lines.length * 42 : 0);
   const listH = rows.reduce((s, r) => s + r.h, 0) + (extra > 0 ? 70 : 0) + (rows.length ? 30 : 160);
   const H = headerH + listH + 170;
   canvas.width = W;
@@ -163,11 +174,10 @@ export async function listPicture({ person, items, year }) {
   ctx.font = `800 34px ${BODY}`;
   ctx.fillStyle = '#ffe2a6';
   ctx.fillText(`CHRISTMAS ${year}  ·  ${items.length} WISH${items.length === 1 ? '' : 'ES'}`, W / 2, 410);
-  if (person.label) {
-    const theme = fitLine(ctx, `Stocking Theme: ${person.label}`, W - PAD * 2, '700', 32, 24);
+  if (theme) {
     ctx.font = theme.font;
     ctx.fillStyle = '#fff';
-    ctx.fillText(theme.text, W / 2, 466);
+    theme.lines.forEach((l, i) => ctx.fillText(l, W / 2, 466 + i * 42));
   }
 
   // card
@@ -215,19 +225,16 @@ export async function listPicture({ person, items, year }) {
     }
     ctx.fillStyle = '#2a1d18';
     ctx.font = r.title.font;
-    ctx.fillText(r.title.text, TEXT_X, ty);
-    ty += 50;
+    for (const l of r.title.lines) { ctx.fillText(l, TEXT_X, ty); ty += 50; }
     if (r.meta) {
       ctx.fillStyle = '#c42b32';
       ctx.font = r.meta.font;
-      ctx.fillText(r.meta.text, TEXT_X, ty - 8);
-      ty += 40;
+      for (const l of r.meta.lines) { ctx.fillText(l, TEXT_X, ty - 8); ty += 40; }
     }
     if (r.notes) {
       ctx.fillStyle = '#7a6a60';
       ctx.font = r.notes.font;
-      ctx.fillText(r.notes.text, TEXT_X, ty - 8);
-      ty += 38;
+      for (const l of r.notes.lines) { ctx.fillText(l, TEXT_X, ty - 8); ty += 38; }
     }
     y = top + r.h;
     if (i < rows.length - 1) {
