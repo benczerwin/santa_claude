@@ -168,7 +168,7 @@ export function parsePastedLinks(text) {
     if (/(^|\.)amazon\.[a-z.]+$/.test(host)) {
       const parts = u.pathname.split('/').filter(Boolean);
       if (parts.some((p) => /^(wishlist|registry)$/i.test(p)) || /\/hz\/wishlist\//i.test(u.pathname)) {
-        warnings.push('One link is a whole Amazon list. Open it and copy each item\'s link instead.');
+        warnings.push('That\'s a link to a whole Amazon list. To bring in every item, follow "Import a whole Amazon list" below.');
         continue;
       }
       const i = parts.findIndex((p) => p === 'dp' || p === 'product');
@@ -230,4 +230,59 @@ export function familySections(group, people) {
     sections: units.map((unit) => ({ unit, people: ordered.filter((p) => p.unit === unit.id) })),
     loose: ordered.filter((p) => !p.unit || !ids.has(p.unit)),
   };
+}
+
+/**
+ * Items from a copied web page (clipboard HTML), e.g. a whole Amazon wish list:
+ * every product link becomes one item with its name, link, price and the list's comment if present.
+ * -> [{ title, link, key, price, notes }]
+ */
+export function parsePastedPage(html) {
+  if (!html || typeof DOMParser === 'undefined') return [];
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+  const PRODUCT = /\/(?:dp|gp\/product|gp\/aw\/d)\/([A-Z0-9]{10})/i;
+
+  // Amazon wish lists mark item names with id="itemName_…"; prefer those when present.
+  let anchors = [...doc.querySelectorAll('a[id^="itemName_"][href]')];
+  if (!anchors.length) anchors = [...doc.querySelectorAll('a[href]')].filter((a) => PRODUCT.test(a.getAttribute('href')));
+
+  const asinsIn = (el) => new Set([...el.querySelectorAll('a[href]')]
+    .map((x) => x.getAttribute('href').match(PRODUCT)?.[1]?.toUpperCase()).filter(Boolean));
+  /** The biggest element around a link that holds just this one product (so its price isn't a neighbour's). */
+  const boxFor = (a) => {
+    const li = a.closest('li, tr, [data-itemid]');
+    if (li && asinsIn(li).size === 1) return li;
+    let best = a.parentElement;
+    for (let el = a.parentElement; el && el !== doc.body; el = el.parentElement) {
+      if (asinsIn(el).size > 1) break;
+      best = el;
+    }
+    return best;
+  };
+
+  const found = new Map();
+  for (const a of anchors) {
+    const m = a.getAttribute('href').match(PRODUCT);
+    if (!m) continue;
+    const asin = m[1].toUpperCase();
+    const name = clean(a.getAttribute('title') || a.textContent);
+    const cur = found.get(asin) || { asin, name: '', box: null };
+    if (name.length > cur.name.length && !/^(add to (cart|list)|buy now|see (all|more)|\$|\d)/i.test(name)) cur.name = name;
+    cur.box ||= boxFor(a);
+    found.set(asin, cur);
+  }
+
+  return [...found.values()].filter((x) => x.name.length > 2).map((x) => {
+    const text = clean(x.box?.textContent);
+    const price = text.match(/\$\s?(\d{1,5}(?:,\d{3})*(?:\.\d{1,2})?)/);
+    const note = clean(x.box?.querySelector('[id^="itemComment_"]')?.textContent);
+    return {
+      title: x.name.length > 120 ? `${x.name.slice(0, 120).replace(/\s+\S*$/, '')}…` : x.name,
+      link: `https://www.amazon.com/dp/${x.asin}`,
+      key: `amazon:${x.asin}`,
+      price: price ? parsePrice(price[1]) : null,
+      notes: note,
+    };
+  });
 }

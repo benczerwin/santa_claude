@@ -600,7 +600,7 @@ function ListScreen({ personId, me, group, people, items, claims, now, year }) {
           <button class="btn primary grow" onClick=${() => setEditing('new')}><${Icon} name="plus" /> Add an item</button>
           <button class="btn magic" onClick=${() => setPicture(true)} aria-label="Share your list as a picture"><${Icon} name="sparkles" /> List</button>
         </div>
-        <button class="link-btn import-link" onClick=${() => setImporting(true)}><${Icon} name="link" size=${16} /> Paste links from Amazon or other stores</button>`}
+        <button class="link-btn import-link" onClick=${() => setImporting(true)}><${Icon} name="link" size=${16} /> Paste links or a whole Amazon list</button>`}
         ${mode === 'owner' && html`<button class="btn block magic list-actions" onClick=${() => setPicture(true)}><${Icon} name="sparkles" /> Share my list as a picture</button>`}
         ${mode === 'shop' && list.length > 0 && html`<div class="filters">
           <div class="chips">${[['all', 'All'], ['available', 'Available'], ['mine', 'Mine']].map(([k, l]) =>
@@ -689,46 +689,93 @@ function ItemRow({ item, mode, me, people, claim, claims, year, onEdit, handle, 
 
 function ImportSheet({ owner, me, year, list, onClose }) {
   const [text, setText] = useState('');
+  const [pageItems, setPageItems] = useState([]); // from a pasted web page (e.g. a whole Amazon list)
   const [titles, setTitles] = useState({});
   const [skip, setSkip] = useState({});
+  const [help, setHelp] = useState(false);
   const have = new Set(list.flatMap((i) => M.allLinks(i)).map((l) => M.linkKey(l)));
   const { drafts, warnings } = M.parsePastedLinks(text);
-  const rows = drafts.map((d) => ({ ...d, dupe: have.has(d.key), title: titles[d.key] ?? d.title }));
+  const seen = new Set();
+  const rows = [...pageItems, ...drafts]
+    .filter((d) => !seen.has(d.key) && seen.add(d.key))
+    .map((d) => ({ ...d, dupe: have.has(d.key), title: titles[d.key] ?? d.title }));
   const chosen = rows.filter((r) => !r.dupe && !skip[r.key] && r.title.trim());
 
+  /** If the clipboard held a copied page, pull its items out; returns how many were found. */
+  function takePage(htmlText) {
+    const found = M.parsePastedPage(htmlText);
+    if (found.length) {
+      setPageItems((cur) => [...cur, ...found.filter((f) => !cur.some((c) => c.key === f.key))]);
+      toast(`Found ${plural(found.length, 'item')} on the pasted page`);
+    }
+    return found.length;
+  }
+  function onPaste(e) {
+    const h = e.clipboardData?.getData('text/html');
+    if (h && takePage(h)) e.preventDefault();
+  }
   async function pasteClipboard() {
-    try { const t = await navigator.clipboard.readText(); setText((cur) => (cur ? `${cur}\n${t}` : t)); }
-    catch { toast('Long-press the box and tap Paste instead', 'error'); }
+    try {
+      if (navigator.clipboard.read) {
+        for (const item of await navigator.clipboard.read()) {
+          if (item.types.includes('text/html') && takePage(await (await item.getType('text/html')).text())) return;
+          if (item.types.includes('text/plain')) {
+            const t = await (await item.getType('text/plain')).text();
+            setText((cur) => (cur ? `${cur}\n${t}` : t));
+            return;
+          }
+        }
+      }
+      const t = await navigator.clipboard.readText();
+      setText((cur) => (cur ? `${cur}\n${t}` : t));
+    } catch {
+      toast('Long-press the box and tap Paste instead', 'error');
+    }
   }
   function add() {
     let order = M.nextOrder(list);
     const t = Date.now();
     chosen.forEach((r, i) => {
       store.put('items', M.newId(), {
-        ownerId: owner.id, year, title: r.title.trim(), link: r.link, notes: '', price: null, qty: 1, size: '', color: '',
-        priority: false, thumb: null, hasPhoto: false, order: order++, createdAt: t + i, addedBy: me.id, updatedAt: t,
+        ownerId: owner.id, year, title: r.title.trim(), link: r.link, links: [], notes: r.notes || '', price: r.price ?? null,
+        qty: 1, size: '', color: '', priority: false, thumb: null, hasPhoto: false,
+        order: order++, createdAt: t + i, addedBy: me.id, updatedAt: t,
       }).catch(fail);
     });
-    toast(`Added ${plural(chosen.length, 'item')}. Tap one to add a price or notes.`);
+    toast(`Added ${plural(chosen.length, 'item')}`);
     onClose();
   }
 
   return html`<${Sheet} title="Paste links" onClose=${onClose}>
-    <p class="hint">Copy product links from Amazon (or any store) and paste them here, as many as you like. Each one becomes an item. Short "a.co" links don't include the product name, so rename those below.</p>
-    <label class="field"><span class="row">Links <button type="button" class="link-btn small-link" onClick=${pasteClipboard}>Paste from clipboard</button></span>
-      <textarea rows="4" value=${text} onInput=${(e) => setText(e.target.value)} placeholder="https://www.amazon.com/…"
+    <p class="hint">Paste product links from Amazon or any store, as many as you like, and each becomes an item. Short "a.co" links don't include the product name, so rename those below.</p>
+    <label class="field"><span class="row">Links or a copied page <button type="button" class="link-btn small-link" onClick=${pasteClipboard}>Paste from clipboard</button></span>
+      <textarea rows="4" value=${text} onInput=${(e) => setText(e.target.value)} onPaste=${onPaste} placeholder="https://www.amazon.com/…"
         autocapitalize="off" autocorrect="off" spellcheck="false"></textarea></label>
     ${warnings.map((w) => html`<p class="field-error">${w}</p>`)}
+
+    <div class="import-help">
+      <button type="button" class="link-btn" onClick=${() => setHelp(!help)} aria-expanded=${help}>
+        <${Icon} name="gift" size=${16} /> Import a whole Amazon list</button>
+      ${help && html`<ol>
+        <li>Open your Amazon list in a web browser, ideally on a computer.</li>
+        <li>Scroll to the very bottom so every item loads ("End of list").</li>
+        <li>Select the whole page (<b>⌘A</b> on a Mac, <b>Ctrl+A</b> on Windows) and copy it (<b>⌘C</b> / <b>Ctrl+C</b>).</li>
+        <li>Open Santa Claude in that browser, go to your list, tap "Paste links", and paste into the box above.</li>
+      </ol>
+      <p class="hint">Names, links, prices and your list comments come across. Untick anything you don't want before adding.</p>`}
+    </div>
+
     ${rows.length > 0 && html`<div class="import-list">
       ${rows.map((r) => html`<div class=${`import-row ${r.dupe || skip[r.key] ? 'off' : ''}`} key=${r.key}>
         <input type="checkbox" checked=${!r.dupe && !skip[r.key]} disabled=${r.dupe} aria-label="Include"
           onChange=${(e) => setSkip({ ...skip, [r.key]: !e.target.checked })} />
         <div class="grow">
           <input class="import-title" value=${r.title} disabled=${r.dupe} onInput=${(e) => setTitles({ ...titles, [r.key]: e.target.value })} />
-          <small class="muted">${r.dupe ? 'Already on this list' : M.linkHost(r.link)}</small>
+          <small class="muted">${r.dupe ? 'Already on this list' : [M.linkHost(r.link), M.fmtPrice(r.price), r.notes].filter(Boolean).join(' · ')}</small>
         </div>
       </div>`)}
     </div>`}
+    ${pageItems.length > 0 && html`<button type="button" class="link-btn small-link" onClick=${() => setPageItems([])}>Clear pasted page</button>`}
     <button class="btn primary block" disabled=${!chosen.length} onClick=${add}>
       <${Icon} name="plus" /> ${chosen.length ? `Add ${plural(chosen.length, 'item')}` : 'Add items'}</button>
   <//>`;

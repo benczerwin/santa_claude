@@ -469,3 +469,8 @@ input, textarea, select { font-size: 16px; } /* stops iOS zooming on focus */
 .unit-name:focus, .unit-name:hover { border-color: var(--line); background: #fff; }
 .rot-up { display: inline-flex; transform: rotate(-90deg); }
 .rot-down { display: inline-flex; transform: rotate(90deg); }
+
+.import-help { background: var(--paper); border-radius: 12px; padding: 4px 12px; margin: 0 0 10px; }
+.import-help ol { margin: 4px 0 6px; padding-left: 20px; font-size: 0.9rem; }
+.import-help li { margin: 4px 0; }
+.import-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -11,7 +11,7 @@ Family Christmas lists. Everyone adds what they'd like to their own list until t
 - **Family tab:** everyone in the group, with their Stocking Theme. Organizers tap Arrange to drag people into order and into groups (e.g. households); "Group managed lists" puts kids with whoever manages them.
 - **Icons:** 40 drawn Christmas & Hanukkah avatars (`js/avatars.js`), or any emoji.
 - **Christmas years:** each year has its own lists, lock date and claims. Pick the year at the top of Home; each phone remembers the last one you viewed. Organizers start a new year in Settings.
-- **Paste links:** on your list, "Paste links from Amazon or other stores" turns pasted product links into items, naming them from the link where possible.
+- **Paste links / whole Amazon list:** on your list, "Paste links or a whole Amazon list" turns pasted product links into items (named from the link where possible). Pasting a copied Amazon list page (select all + copy in a browser) brings in every item's name, link, price and comment.
 - **Swipe & drag:** on your list, swipe right to edit, left to delete, and drag the handle to reorder. When shopping, swipe right to claim / mark bought, left to unclaim.
 - **Sample family (demo mode only):** Settings → "Load sample family" fills in made-up people, items and claims (this year and last) to try things out. It replaces everything saved, so it is hidden once Firebase is connected.
 - **Managed lists:** for kids or anyone without a phone. Whoever adds one edits it before the lock and shops it after.
