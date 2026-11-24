@@ -278,7 +278,7 @@ export async function shoppingWorkbook(rows, { year, shopper }) {
     'Size', 'Color', 'Notes', 'Link', 'Other links', 'Christmas'];
   const sorted = [...rows].sort((a, b) => a.person.name.localeCompare(b.person.name) || (a.item.order ?? 0) - (b.item.order ?? 0));
   const data = sorted.map(({ person, item, claim }) => [
-    person.name, person.label || '', item.title, claim.status === 'bought' ? 'Bought' : 'To buy',
+    person.name, person.label || '', item.title, item.removedAt ? 'Removed from list' : claim.status === 'bought' ? 'Bought' : 'To buy',
     item.priority ? 'Yes' : '', item.price ?? null, item.qty || 1,
     item.price != null ? Math.round(item.price * (item.qty || 1) * 100) / 100 : null,
     item.size || '', item.color || '', item.notes || '', item.link || '', (item.links || []).join('\n'), Number(year),

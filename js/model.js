@@ -286,3 +286,32 @@ export function parsePastedPage(html) {
     };
   });
 }
+
+// ── changes after the lock ──
+// Owners can keep editing after the lock; anything they add, edit or remove then is flagged for everyone else.
+// Deleting after the lock sets item.removedAt instead of erasing it, so whoever claimed it can still see it.
+
+/** -> { kind: 'added' | 'edited' | 'removed', at } for an item changed after this year's lock, else null. */
+export function changeOf(item, group) {
+  const lock = lockTime(group);
+  if (!isFinite(lock)) return null;
+  if (item.removedAt) return item.removedAt >= lock ? { kind: 'removed', at: item.removedAt } : null;
+  if ((item.createdAt || 0) >= lock) return { kind: 'added', at: item.createdAt };
+  if ((item.updatedAt || 0) >= lock) return { kind: 'edited', at: item.updatedAt };
+  return null;
+}
+
+/** For the person who claimed an item: 'removed' | 'edited' if it changed since they claimed it (or last said "Got it"). */
+export function claimAlert(item, claim) {
+  if (!item || !claim) return null;
+  const since = Math.max(claim.at || 0, claim.seenAt || 0);
+  if (item.removedAt) return item.removedAt > since ? 'removed' : null;
+  return (item.updatedAt || 0) > since ? 'edited' : null;
+}
+
+/** "2 new · 1 edited · 1 removed" */
+export function changeSummary(changes) {
+  const n = (k) => changes.filter((c) => c.kind === k).length;
+  return [[n('added'), 'new'], [n('edited'), 'edited'], [n('removed'), 'removed']]
+    .filter(([c]) => c).map(([c, w]) => `${c} ${w}`).join(' · ');
+}

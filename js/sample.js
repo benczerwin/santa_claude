@@ -77,7 +77,8 @@ export async function loadSample() {
   const all = await Promise.all(COLS.map(getAll));
   await Promise.all(COLS.flatMap((c, i) => all[i].map((r) => store.remove(c, r.id))));
 
-  const t = Date.now();
+  // Back-dated a week so "Lock lists now" doesn't make every sample item look newly added.
+  const t = Date.now() - 7 * 86_400_000;
   const writes = [store.put('settings', 'group', {
     name: 'The Sample Family', admins: ['alex'], createdAt: t,
     units: [{ id: 'ua', name: "Alex's family" }, { id: 'uj', name: "Jordan's family" }],

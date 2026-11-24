@@ -5,7 +5,7 @@ Family Christmas lists. Everyone adds what they'd like to their own list until t
 ## How it works
 
 - **Before the lock date:** you can only see and edit your own list (and any lists you manage). Other lists show "Opens Dec 1".
-- **After the lock date:** your list is read-only, and you **never see** what's been claimed or bought on it. Everyone else's lists open for shopping.
+- **After the lock date:** everyone else's lists open for shopping, and you **never see** what's been claimed or bought on yours. You can still add, edit or remove items; those changes are tagged New / Edited / Removed for everyone else, summarised at the top of Home and of your list, and anyone who had claimed a changed or removed item gets a red "Heads up" until they tap "Got it". Removing an item after the lock only marks it removed (`removedAt`) so its claimer still sees it.
 - **Claiming:** tap an item, then "I'll get this". Others see it as "Claimed · Ben". Then "Mark bought", or "Unclaim" to let it go. The 🛒 Shopping tab lists everything you've claimed, with an estimated total.
 - **Items** have a name, a primary link plus any extra links, notes, a ★ "really want this" flag, and optional price, quantity, size, color and a photo. Shoppers can filter by available/mine and by price.
 - **Family tab:** everyone in the group, with their Stocking Theme. Organizers tap Arrange to drag people into order and into groups (e.g. households); "Group managed lists" puts kids with whoever manages them.
@@ -74,6 +74,6 @@ Then open http://localhost:8124.
 | --- | --- |
 | `settings/group` | `name`, `admins`, `years: { '2026': { lockDate } }`, `units: [{ id, name }]` |
 | `people/{id}` | `name`, `label` (Stocking Theme), `avatar` (`i:<icon>` or emoji), `managedBy`, `unit`, `sort` |
-| `items/{id}` | `ownerId`, `year`, `order`, `title`, `link` (primary), `links` (others), `notes`, `priority`, `price`, `qty`, `size`, `color`, `thumb` |
-| `claims/{itemId}` | `claimerId`, `ownerId`, `year`, `status` (`claimed` / `bought`) |
+| `items/{id}` | `ownerId`, `year`, `order`, `title`, `link` (primary), `links` (others), `updatedAt`, `removedAt`, `notes`, `priority`, `price`, `qty`, `size`, `color`, `thumb` |
+| `claims/{itemId}` | `claimerId`, `ownerId`, `year`, `at`, `seenAt`, `status` (`claimed` / `bought`) |
 | `photos/{itemId}` | `full` (JPEG data URL) |

@@ -342,7 +342,9 @@ function useReorder(ids, onCommit) {
 
 // ───────────────────────── data actions ─────────────────────────
 
-function deleteItem(item, claims) {
+/** Deletes an item. After the lock (`soft`) it's only marked removed, so whoever claimed it gets told. */
+function deleteItem(item, claims, soft = false) {
+  if (soft) { store.patch('items', item.id, { removedAt: Date.now() }).catch(fail); return; }
   store.remove('items', item.id).catch(fail);
   if (item.hasPhoto) store.remove('photos', item.id).catch(fail);
   if (claims.some((c) => c.id === item.id)) store.remove('claims', item.id).catch(fail);
@@ -355,6 +357,16 @@ function deletePerson(person, { allItems, allClaims, people }, inheritorId) {
   for (const p of people.filter((p) => p.managedBy === person.id)) store.patch('people', p.id, { managedBy: inheritorId }).catch(fail);
   store.remove('people', person.id).catch(fail);
 }
+
+const seenKey = (year, pid) => `santa-claude:seen:${year}:${pid}`;
+const getSeen = (year, pid) => Number(loadKey(seenKey(year, pid))) || 0;
+const markSeen = (year, pid) => saveKey(seenKey(year, pid), String(Date.now()));
+/** Changes after the lock to one person's list that this device hasn't said "Got it" to. */
+const unseenChanges = (pid, { items, removed, group, year }) => [...items, ...removed]
+  .filter((i) => i.ownerId === pid)
+  .map((i) => ({ item: i, ...M.changeOf(i, group) }))
+  .filter((c) => c.kind && c.at > getSeen(year, pid));
+const ackClaim = (item) => store.patch('claims', item.id, { seenAt: Date.now() }).catch(fail);
 
 async function claimItem(item, me, year) {
   try {
@@ -499,7 +511,38 @@ function LockBanner({ group, now }) {
         <div><b>Lists lock ${when}</b><span>${M.timeLeft(group, now)} left to add to your list. Then everyone else can see it and start shopping.</span></div></div>`;
 }
 
-function Home({ me, group, people, items, claims, now, year, onYear, onSignOut }) {
+/** "Heads up" card: items you claimed that changed, and lists updated since the lock. */
+function ChangeAlerts({ me, group, people, items, removed, claims, year }) {
+  const all = [...items, ...removed];
+  const mine = claims.filter((c) => c.claimerId === me.id)
+    .map((c) => { const item = all.find((i) => i.id === c.id); return { c, item, kind: M.claimAlert(item, c) }; })
+    .filter((x) => x.kind && x.item.ownerId !== me.id);
+  const updates = M.orderPeople(people).filter((p) => p.id !== me.id && p.managedBy !== me.id)
+    .map((p) => ({ p, changes: unseenChanges(p.id, { items, removed, group, year }) }))
+    .filter((u) => u.changes.length);
+  if (!mine.length && !updates.length) return null;
+  const nameOf = (id) => firstName(people.find((p) => p.id === id));
+  return html`<div class="alerts">
+    ${mine.map(({ item, kind }) => html`<div class="alert urgent" key=${item.id}>
+      <${Icon} name=${kind === 'removed' ? 'trash' : 'pencil'} size=${20} />
+      <div class="grow"><b>${nameOf(item.ownerId)} ${kind === 'removed' ? 'removed' : 'changed'} "${item.title}"</b>
+        <small>${kind === 'removed' ? "You'd claimed it. You may want to unclaim it." : 'You claimed this. Check the details before you buy.'}</small>
+        <div class="row wrap alert-actions">
+          ${kind === 'removed'
+            ? html`<button class="btn small" onClick=${() => unclaim(item)}>Unclaim</button>`
+            : html`<a class="btn small" href=${`#/list/${item.ownerId}`}>See it</a>`}
+          <button class="btn small" onClick=${() => ackClaim(item)}>Got it</button>
+        </div></div>
+    </div>`)}
+    ${updates.map(({ p, changes }) => html`<a class="alert" key=${p.id} href=${`#/list/${p.id}`}>
+      <${Icon} name="list" size=${20} />
+      <div class="grow"><b>${p.id === me.id ? 'Your' : `${firstName(p)}'s`} list changed since it locked</b><small>${M.changeSummary(changes)}</small></div>
+      <span class="chev"><${Icon} name="chevron" /></span>
+    </a>`)}
+  </div>`;
+}
+
+function Home({ me, group, people, items, removed, claims, now, year, onYear, onSignOut }) {
   const locked = M.isLocked(group, now);
   const countFor = (pid) => items.filter((i) => i.ownerId === pid).length;
   const availableFor = (pid) => items.filter((i) => i.ownerId === pid && !claims.some((c) => c.id === i.id)).length;
@@ -528,10 +571,11 @@ function Home({ me, group, people, items, claims, now, year, onYear, onSignOut }
       right=${html`<button class="me-btn" onClick=${onSignOut} aria-label=${`Signed in as ${me.name}. Switch person`}>
         <${Avatar} person=${me} size=${44} /><small>Not you?</small></button>`} />
     <div class="row wrap year-row"><${YearPicker} group=${group} year=${year} onYear=${onYear} /></div>
+    ${locked && html`<${ChangeAlerts} me=${me} group=${group} people=${people} items=${items} removed=${removed} claims=${claims} year=${year} />`}
     <${LockBanner} group=${group} now=${now} />
 
     <h2 class="section">Yours</h2>
-    ${card(me, locked ? `${plural(countFor(me.id), 'item')} · locked` : `${plural(countFor(me.id), 'item')} · tap to add more`)}
+    ${card(me, locked ? `${plural(countFor(me.id), 'item')} · locked for shopping, still editable` : `${plural(countFor(me.id), 'item')} · tap to add more`)}
     ${managed.map((p) => card(p, locked ? otherSub(p) : `${plural(countFor(p.id), 'item')} · you manage this list`, 'Managed'))}
 
     ${locked && html`<a class="list-card shopping" href="#/shopping">
@@ -552,13 +596,14 @@ function Home({ me, group, people, items, claims, now, year, onYear, onSignOut }
 
 const PRICE_FILTERS = [[null, 'Any price'], [25, 'Under $25'], [50, 'Under $50'], [100, 'Under $100']];
 
-function ListScreen({ personId, me, group, people, items, claims, now, year }) {
+function ListScreen({ personId, me, group, people, items, removed, claims, now, year }) {
   const person = people.find((p) => p.id === personId);
   const [editing, setEditing] = useState(null); // null | 'new' | item
   const [show, setShow] = useState('all');
   const [maxPrice, setMaxPrice] = useState(null);
   const [picture, setPicture] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [, setSeenTick] = useState(0);
   const list = person ? M.sortItems(items.filter((i) => i.ownerId === person.id)) : [];
   const reorder = useReorder(list.map((i) => i.id), (ids) => {
     ids.forEach((id, i) => { if (list.find((x) => x.id === id)?.order !== i) store.patch('items', id, { order: i }).catch(fail); });
@@ -567,6 +612,12 @@ function ListScreen({ personId, me, group, people, items, claims, now, year }) {
 
   const mode = M.listMode(me, person, group, now);
   const own = person.id === me.id;
+  const locked = M.isLocked(group, now);
+  const editable = M.canEdit(me, person) && mode !== 'hidden'; // owners and managers can keep editing after the lock
+  const ownerView = mode === 'edit' || mode === 'owner';
+  const changes = mode === 'shop' ? unseenChanges(person.id, { items, removed, group, year }) : [];
+  // Removed after the lock but claimed by me: keep showing so I know.
+  const goneMine = mode === 'shop' ? removed.filter((i) => i.ownerId === person.id && claims.some((c) => c.id === i.id && c.claimerId === me.id)) : [];
   const claimOf = (id) => claims.find((c) => c.id === id);
   const shown = mode !== 'shop' ? list : list.filter((i) => {
     const c = claimOf(i.id);
@@ -579,8 +630,10 @@ function ListScreen({ personId, me, group, people, items, claims, now, year }) {
 
   const intro = {
     edit: `Changes allowed until ${lockWhen}`,
-    owner: 'Your list is locked. What people have bought is hidden, so no peeking!',
-    shop: 'Swipe right to claim or mark bought, left to unclaim.',
+    owner: "Locked for shopping, but you can still add or change things. Everyone will see what changed. What's been bought stays hidden.",
+    shop: editable
+      ? `You manage this list: tap an item to edit it, swipe right to claim. Changes are shown to everyone.`
+      : 'Swipe right to claim or mark bought, left to unclaim.',
   }[mode];
 
   return html`<main class="screen">
@@ -595,13 +648,18 @@ function ListScreen({ personId, me, group, people, items, claims, now, year }) {
           <p class="muted">Lists stay private while people are still writing them.${list.length ? ` So far there ${list.length === 1 ? 'is 1 item' : `are ${list.length} items`}.` : ''}</p>
         </div>`
       : html`
+        ${changes.length > 0 && html`<div class="alert list-alert">
+          <${Icon} name="list" size=${20} />
+          <div class="grow"><b>${firstName(person)} changed this list after it locked</b>
+            <small>${M.changeSummary(changes)}: ${changes.map((c) => `${c.item.title}${c.kind === 'removed' ? ' (removed)' : ''}`).join(', ')}</small></div>
+          <button class="btn small" onClick=${() => { markSeen(year, person.id); setSeenTick((n) => n + 1); }}>Got it</button>
+        </div>`}
         <p class="intro">${intro}</p>
-        ${mode === 'edit' && html`<div class="row list-actions">
+        ${editable && html`<div class="row list-actions">
           <button class="btn primary grow" onClick=${() => setEditing('new')}><${Icon} name="plus" /> Add an item</button>
           <button class="btn magic" onClick=${() => setPicture(true)} aria-label="Share your list as a picture"><${Icon} name="sparkles" /> List</button>
         </div>
         <button class="link-btn import-link" onClick=${() => setImporting(true)}><${Icon} name="link" size=${16} /> Paste links or a whole Amazon list</button>`}
-        ${mode === 'owner' && html`<button class="btn block magic list-actions" onClick=${() => setPicture(true)}><${Icon} name="sparkles" /> Share my list as a picture</button>`}
         ${mode === 'shop' && list.length > 0 && html`<div class="filters">
           <div class="chips">${[['all', 'All'], ['available', 'Available'], ['mine', 'Mine']].map(([k, l]) =>
             html`<button class=${`chip ${show === k ? 'on' : ''}`} onClick=${() => setShow(k)}>${l}</button>`)}</div>
@@ -610,17 +668,20 @@ function ListScreen({ personId, me, group, people, items, claims, now, year }) {
         </div>`}
         <div class="items">
           ${shown.map((it, i) => html`<${ItemRow} key=${it.id} item=${it} mode=${mode} me=${me} people=${people} year=${year}
-            claim=${claimOf(it.id)} claims=${claims} onEdit=${() => setEditing(it)}
-            handle=${mode === 'edit' ? reorder.handle(it.id) : null} rowRef=${reorder.rowRef(it.id)}
-            style=${mode === 'edit' ? reorder.styleFor(it.id, i) : ''} dragging=${reorder.draggingId === it.id} />`)}
+            claim=${claimOf(it.id)} claims=${claims} onEdit=${editable ? () => setEditing(it) : null} locked=${locked}
+            change=${mode === 'shop' ? M.changeOf(it, group)?.kind : null} ownerView=${ownerView}
+            handle=${ownerView ? reorder.handle(it.id) : null} rowRef=${reorder.rowRef(it.id)}
+            style=${ownerView ? reorder.styleFor(it.id, i) : ''} dragging=${reorder.draggingId === it.id} />`)}
+          ${goneMine.map((it) => html`<${ItemRow} key=${it.id} item=${it} mode=${mode} me=${me} people=${people} year=${year}
+            claim=${claimOf(it.id)} claims=${claims} change="removed" />`)}
         </div>
-        ${!list.length && html`<p class="muted empty center">${mode === 'edit' ? 'Nothing here yet. Add your first wish!' : 'Nothing on this list.'}</p>`}
+        ${!list.length && html`<p class="muted empty center">${editable ? 'Nothing here yet. Add your first wish!' : 'Nothing on this list.'}</p>`}
         ${list.length > 0 && !shown.length && html`<p class="muted empty center">No items match these filters.</p>`}
       `}
 
     ${editing && html`<${ItemSheet} item=${editing === 'new' ? null : editing} owner=${person} me=${me} year=${year}
-      nextOrder=${M.nextOrder(list)} onClose=${() => setEditing(null)}
-      onDelete=${(id) => deleteItem(items.find((i) => i.id === id) || { id, hasPhoto: true }, claims)} />`}
+      nextOrder=${M.nextOrder(list)} onClose=${() => setEditing(null)} locked=${locked}
+      onDelete=${(id) => deleteItem(items.find((i) => i.id === id) || { id, hasPhoto: true }, claims, locked)} />`}
     ${importing && html`<${ImportSheet} owner=${person} me=${me} year=${year} list=${list} onClose=${() => setImporting(false)} />`}
     ${picture && html`<${PictureSheet} person=${person} items=${list} year=${year} onClose=${() => setPicture(false)} />`}
   </main>`;
@@ -635,17 +696,23 @@ function ClaimPill({ claim, me, people }) {
     ${bought ? 'Bought' : 'Claimed'} · ${who}</span>`;
 }
 
-function ItemRow({ item, mode, me, people, claim, claims, year, onEdit, handle, rowRef, style, dragging }) {
+function ItemRow({ item, mode, me, people, claim, claims, year, onEdit, handle, rowRef, style, dragging, locked, change, ownerView }) {
   const [photo, setPhoto] = useState(false);
   const meta = M.itemMeta(item);
   const shop = mode === 'shop';
-  const edit = mode === 'edit';
   const mine = claim?.claimerId === me.id;
   const takenByOther = shop && claim && !mine;
-  const del = () => { if (confirm(`Delete "${item.title}"?`)) deleteItem(item, claims); };
+  const gone = !!item.removedAt;
+  const alert = mine ? M.claimAlert(item, claim) : null;
+  const del = () => {
+    if (!confirm(locked ? `Remove "${item.title}"? Everyone will be told, in case someone already bought it.` : `Delete "${item.title}"?`)) return;
+    deleteItem(item, claims, locked);
+  };
 
   let left = null, right = null;
-  if (edit) {
+  if (gone) {
+    right = mine ? { icon: 'x', label: 'Unclaim', tone: 'red', onAction: () => unclaim(item) } : null;
+  } else if (ownerView) {
     left = item.priority
       ? { icon: 'star', label: 'Unpin', tone: 'gold', onAction: () => store.patch('items', item.id, { priority: false }).catch(fail) }
       : { icon: 'star', label: 'Really want', tone: 'gold', onAction: () => { store.patch('items', item.id, { priority: true }).catch(fail); toast('Pinned to the top'); } };
@@ -660,13 +727,14 @@ function ItemRow({ item, mode, me, people, claim, claims, year, onEdit, handle, 
   }
 
   return html`<${SwipeRow} left=${left} right=${right} rowRef=${rowRef} style=${style}
-      class=${`item ${takenByOther ? 'taken' : ''} ${item.priority ? 'star' : ''} ${dragging ? 'dragging' : ''}`}>
-    <div class=${`item-row ${edit ? 'tappable' : ''}`}
-      onClick=${edit ? (e) => { if (!e.target.closest('a, button')) onEdit(); } : null}>
+      class=${`item ${takenByOther ? 'taken' : ''} ${item.priority ? 'star' : ''} ${dragging ? 'dragging' : ''} ${gone ? 'gone' : ''}`}>
+    <div class=${`item-row ${onEdit && !gone ? 'tappable' : ''}`}
+      onClick=${onEdit && !gone ? (e) => { if (!e.target.closest('a, button')) onEdit(); } : null}>
       ${handle && html`<button class="handle" aria-label="Drag to reorder" ...${handle}><${Icon} name="grip" /></button>`}
       ${item.thumb && html`<button class="thumb-btn" onClick=${() => item.hasPhoto && setPhoto(true)} aria-label="View photo">
         <img class="thumb" src=${item.thumb} alt="" /></button>`}
       <div class="grow item-main">
+        ${change && html`<span class=${`change-tag ${change}`}>${{ added: 'New', edited: 'Edited', removed: 'Removed from list' }[change]}</span>`}
         <div class="item-title">${item.priority && html`<span class="star-ico" title="Really wants this"><${Icon} name="star" size=${15} /></span>`}${item.title}</div>
         ${meta && html`<div class="meta">${meta}</div>`}
         ${item.notes && html`<div class="notes">${item.notes}</div>`}
@@ -675,8 +743,11 @@ function ItemRow({ item, mode, me, people, claim, claims, year, onEdit, handle, 
             <${Icon} name="external" size=${14} /> ${M.linkHost(l)}</a>`)}
           ${shop && html`<${ClaimPill} claim=${claim} me=${me} people=${people} />`}
         </div>`}
+        ${alert && html`<div class="claim-alert"><${Icon} name=${alert === 'removed' ? 'trash' : 'pencil'} size=${14} />
+          <span class="grow">${alert === 'removed' ? 'Removed after you claimed it' : 'Changed after you claimed it'}</span>
+          <button class="btn small" onClick=${() => ackClaim(item)}>Got it</button></div>`}
       </div>
-      ${shop && html`<div class="row-actions">
+      ${shop && !gone && html`<div class="row-actions">
         ${!claim && html`<button class="act claim" onClick=${() => claimItem(item, me, year)}><${Icon} name="gift" size=${18} /><small>Claim</small></button>`}
         ${mine && html`<button class=${`act ${claim.status === 'bought' ? 'done' : 'buy'}`}
           onClick=${() => setBought(item, claim.status !== 'bought')}><${Icon} name="check" size=${18} />
@@ -813,7 +884,7 @@ function Lightbox({ id, onClose }) {
   </div>`;
 }
 
-function ItemSheet({ item, owner, me, year, nextOrder, onClose, onDelete }) {
+function ItemSheet({ item, owner, me, year, nextOrder, onClose, onDelete, locked }) {
   const id = useRef(item?.id || M.newId()).current;
   const created = useRef(!!item);
   const [f, setF] = useState(() => ({
@@ -878,6 +949,7 @@ function ItemSheet({ item, owner, me, year, nextOrder, onClose, onDelete }) {
   return html`<${Sheet} title=${item ? 'Edit item' : 'Add an item'} onClose=${onClose}
       status=${busy ? 'Processing photo…' : !f.title.trim() ? (item ? 'Needs a name' : '') : status}>
     <form onSubmit=${(e) => e.preventDefault()}>
+      ${locked && html`<p class="lock-note"><${Icon} name="lock" size=${15} /> Lists are locked, so everyone will see this as ${item ? 'a change' : 'a new item'}.</p>`}
       <label class="field"><span>What is it?</span>
         <input value=${f.title} onInput=${set('title')} maxlength="120" placeholder="e.g. Cozy slippers" ref=${titleRef} enterkeyhint="done" /></label>
       <div class="field"><span>Links <em>(optional)</em></span>
@@ -924,7 +996,7 @@ function ItemSheet({ item, owner, me, year, nextOrder, onClose, onDelete }) {
       </div>
       <p class="hint">Changes save automatically. Swipe down or tap Done when you're finished.</p>
       ${(item || f.title.trim()) && html`<button type="button" class="btn danger block delete-btn" onClick=${() => {
-        if (!confirm(`Delete "${f.title.trim() || item?.title || 'this item'}"?`)) return;
+        if (!confirm(locked ? `Remove "${f.title.trim() || item?.title || 'this item'}"? Everyone will be told, in case someone already bought it.` : `Delete "${f.title.trim() || item?.title || 'this item'}"?`)) return;
         cancelSave();
         if (created.current) onDelete(id);
         onClose();
@@ -935,7 +1007,7 @@ function ItemSheet({ item, owner, me, year, nextOrder, onClose, onDelete }) {
 
 // ───────────────────────── shopping ─────────────────────────
 
-function Shopping({ me, group, people, items, claims, now, year }) {
+function Shopping({ me, group, people, items, removed, claims, now, year }) {
   const [exporting, setExporting] = useState(false);
   useEffect(() => { loadXLSX().catch(() => {}); }, []); // warm up so the share sheet opens straight away
   async function exportExcel() {
@@ -952,7 +1024,7 @@ function Shopping({ me, group, people, items, claims, now, year }) {
     }
   }
   const mine = claims.filter((c) => c.claimerId === me.id)
-    .map((c) => ({ c, item: items.find((i) => i.id === c.id) })).filter((x) => x.item);
+    .map((c) => ({ c, item: items.find((i) => i.id === c.id) || removed.find((i) => i.id === c.id) })).filter((x) => x.item);
   const toBuy = mine.filter((x) => x.c.status !== 'bought');
   const total = mine.reduce((s, x) => s + (x.item.price || 0) * (x.item.qty || 1), 0);
   const owners = [...new Set(mine.map((x) => x.item.ownerId))]
@@ -986,9 +1058,13 @@ function Shopping({ me, group, people, items, claims, now, year }) {
                 <button class=${`check ${bought ? 'on' : ''}`} onClick=${() => setBought(item, !bought)}
                   aria-label=${bought ? 'Mark not bought' : 'Mark bought'}><${Icon} name="check" size=${16} /></button>
                 <div class="grow item-main">
+                  ${item.removedAt && html`<span class="change-tag removed">Removed from list</span>`}
                   <div class=${`item-title ${bought ? 'done' : ''}`}>${item.title}</div>
                   ${M.itemMeta(item) && html`<div class="meta">${M.itemMeta(item)}</div>`}
                   ${item.notes && html`<div class="notes">${item.notes}</div>`}
+                  ${M.claimAlert(item, c) && html`<div class="claim-alert"><${Icon} name=${item.removedAt ? 'trash' : 'pencil'} size=${14} />
+                    <span class="grow">${item.removedAt ? `${firstName(p)} removed this after you claimed it` : `${firstName(p)} changed this after you claimed it`}</span>
+                    <button class="btn small" onClick=${() => ackClaim(item)}>Got it</button></div>`}
                 </div>
                 ${item.link && html`<a class="icon-btn" href=${item.link} target="_blank" rel="noopener noreferrer" aria-label="Open link"><${Icon} name="external" /></a>`}
               </div>
@@ -1297,9 +1373,11 @@ function App() {
       const years = M.yearList(group);
       const year = years.includes(yearPref) ? yearPref : years[0];
       const g = M.groupForYear(group, year);
-      const items = allItems.filter((i) => M.yearOfDoc(i, group) === year);
+      const yearItems = allItems.filter((i) => M.yearOfDoc(i, group) === year);
+      const items = yearItems.filter((i) => !i.removedAt);
+      const removed = yearItems.filter((i) => i.removedAt);
       const claims = allClaims.filter((c) => M.yearOfDoc(c, group) === year);
-      const props = { me, group: g, rawGroup: group, people, items, claims, allItems, allClaims, now, year, onYear: chooseYear };
+      const props = { me, group: g, rawGroup: group, people, items, removed, claims, allItems, allClaims, now, year, onYear: chooseYear };
       const screen = route[0] === 'list' ? html`<${ListScreen} ...${props} personId=${route[1]} />`
         : route[0] === 'shopping' ? html`<${Shopping} ...${props} />`
         : route[0] === 'family' ? html`<${Family} ...${props} />`

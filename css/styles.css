@@ -474,3 +474,37 @@ input, textarea, select { font-size: 16px; } /* stops iOS zooming on focus */
 .import-help ol { margin: 4px 0 6px; padding-left: 20px; font-size: 0.9rem; }
 .import-help li { margin: 4px 0; }
 .import-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* changes after the lock */
+.alerts { display: flex; flex-direction: column; gap: 8px; margin: 0 0 10px; }
+.alert {
+  display: flex; align-items: flex-start; gap: 10px; text-decoration: none;
+  background: var(--gold-soft); border: 1px solid #f1dca6; border-radius: var(--radius); padding: 12px 14px;
+}
+.alert > .icon { color: #a5751a; margin-top: 1px; }
+.alert b { display: block; }
+.alert small { display: block; color: #6b5a3a; margin-top: 2px; }
+.alert.urgent { background: var(--red-soft); border-color: #f2c3c0; }
+.alert.urgent > .icon { color: var(--red); }
+.alert.urgent small { color: #7a3a36; }
+.alert .btn.small { min-height: 32px; background: #fff; }
+.alert-actions { margin-top: 8px; gap: 8px; }
+.list-alert { margin-bottom: 12px; align-items: center; }
+.change-tag {
+  display: inline-block; font-size: 0.7rem; font-weight: 900; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 999px; margin-bottom: 4px;
+}
+.change-tag.added { background: var(--green-soft); color: var(--green); }
+.change-tag.edited { background: var(--gold-soft); color: #7a5410; }
+.change-tag.removed { background: var(--red-soft); color: var(--red); }
+.claim-alert {
+  display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 6px 6px 6px 10px; border-radius: 10px;
+  background: var(--red-soft); color: #7a3a36; font-weight: 800; font-size: 0.85rem;
+}
+.claim-alert .btn.small { min-height: 30px; padding: 4px 10px; background: #fff; }
+.item.gone .item-title { text-decoration: line-through; color: var(--muted); }
+.item.gone .item-row { opacity: 0.85; }
+.lock-note {
+  display: flex; align-items: center; gap: 6px; margin: 0 0 12px; padding: 8px 10px; border-radius: 10px;
+  background: var(--gold-soft); color: #7a5410; font-weight: 700; font-size: 0.88rem;
+}
