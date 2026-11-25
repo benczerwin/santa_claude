@@ -5,6 +5,7 @@ import { processPhoto } from './photo.js';
 import { iconSVG } from './icons.js';
 import { ICON_IDS, isIcon, iconName, avatarSVG } from './avatars.js';
 import { loadSample } from './sample.js';
+import { VERSION } from './version.js';
 import { listPicture, shoppingWorkbook, shareOrDownload, loadXLSX } from './export.js';
 
 // ───────────────────────── helpers & hooks ─────────────────────────
@@ -1411,5 +1412,44 @@ function App() {
 
   return html`${!store.isLive && html`<div class="demo-bar">Demo mode: saved on this device only</div>`}${body}<${Toasts} />`;
 }
+
+// ───────────────────────── staying up to date ─────────────────────────
+// Phones (and home-screen apps) can hold on to old files. When the app opens or comes back to the
+// screen, compare our VERSION with the live js/version.js; if it's newer, refresh the saved files and reload.
+
+const APP_FILES = ['./', 'index.html', 'css/styles.css', 'manifest.webmanifest', 'vendor/htm-preact.js',
+  ...['app', 'avatars', 'export', 'firebase-config', 'icons', 'model', 'photo', 'sample', 'store', 'store-firebase', 'store-local', 'version']
+    .map((f) => `js/${f}.js`)];
+let checking = false;
+
+async function checkForUpdate() {
+  if (checking || !navigator.onLine) return;
+  checking = true;
+  try {
+    const res = await fetch(`js/version.js?check=${Date.now()}`, { cache: 'no-store' });
+    const live = Number((await res.text()).match(/VERSION\s*=\s*(\d+)/)?.[1]);
+    if (!live || live <= VERSION) return;
+    // Don't loop if something keeps serving old files; and don't interrupt someone mid-edit.
+    if (sessionStorage.getItem('santa-claude:updated-to') === String(live)) return;
+    if (document.querySelector('.sheet')) return;
+    sessionStorage.setItem('santa-claude:updated-to', String(live));
+    toast('Updating to the newest version…');
+    const reg = await navigator.serviceWorker?.getRegistration?.();
+    await Promise.all([
+      reg?.update().catch(() => {}),
+      ...APP_FILES.map((f) => fetch(f, { cache: 'reload' }).catch(() => {})),
+      ...(typeof caches === 'undefined' ? [] : (await caches.keys().catch(() => [])).map((k) => caches.delete(k))),
+    ]);
+    location.reload();
+  } catch {
+    // offline or blocked: try again next time
+  } finally {
+    checking = false;
+  }
+}
+
+setTimeout(checkForUpdate, 1500);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
+setInterval(checkForUpdate, 30 * 60_000);
 
 render(html`<${App} />`, document.getElementById('app'));

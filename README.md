@@ -47,6 +47,10 @@ From scratch:
 5. Push to `main`, then on GitHub: Settings → Pages → Deploy from branch → `main` / root.
 6. Open https://benczerwin.github.io/santa_claude/, set up the group, and send the link to the family. On iPhone: Share → **Add to Home Screen**.
 
+### Releasing
+
+Run `scripts/bump-version.sh` before pushing a change. It bumps `js/version.js` and the service-worker cache name; open apps notice the newer version when they're opened or brought back to the screen, refresh their saved files and reload.
+
 ### Run locally
 
 ```bash
@@ -64,6 +68,7 @@ Then open http://localhost:8124.
 | `js/icons.js` | SVG line icons |
 | `js/sample.js` | Sample family data |
 | `js/avatars.js` | The 40 drawn avatar icons |
+| `js/version.js` | Release number used by the self-update check |
 | `js/store*.js` | Firestore / local-demo backends |
 | `js/photo.js` | On-device photo shrinking |
 | `css/styles.css` | Styles |
