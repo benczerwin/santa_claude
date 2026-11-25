@@ -508,3 +508,17 @@ input, textarea, select { font-size: 16px; } /* stops iOS zooming on focus */
   display: flex; align-items: center; gap: 6px; margin: 0 0 12px; padding: 8px 10px; border-radius: 10px;
   background: var(--gold-soft); color: #7a5410; font-weight: 700; font-size: 0.88rem;
 }
+
+/* claim options slide-over */
+.act.mine { background: var(--gold-soft); color: #7a5410; }
+.sheet.compact .sheet-head h2 { font-size: 1.05rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.claim-sheet-sub { margin: 0 0 6px; }
+.claim-options { display: flex; flex-direction: column; gap: 10px; padding-bottom: 6px; }
+.claim-options .btn.block { margin: 0; min-height: 52px; font-size: 1.02rem; }
+.btn.buy-btn { background: var(--green); border-color: var(--green); color: #fff; }
+.btn.unclaim-btn { border-color: #f2c3c0; background: var(--red-soft); }
+
+/* toasts drop in from the top so they never cover a sheet's buttons */
+.toasts { top: calc(12px + env(safe-area-inset-top)); bottom: auto; }
+@keyframes down { from { transform: translateY(-16px); opacity: 0; } }
+.toast { animation: down 0.2s ease-out; }

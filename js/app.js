@@ -94,7 +94,7 @@ function PageHeader({ eyebrow, title, right, children }) {
 }
 
 /** Bottom sheet. Swipe down (or tap outside / Done) to close. Contents save as you go. */
-function Sheet({ title, onClose, status, children }) {
+function Sheet({ title, onClose, status, compact, children }) {
   const sheetRef = useRef();
   const bodyRef = useRef();
   const [dy, setDy] = useState(0);
@@ -152,13 +152,15 @@ function Sheet({ title, onClose, status, children }) {
 
   return html`
     <div class=${`sheet-backdrop ${closing ? 'closing' : ''}`} onClick=${(e) => e.target === e.currentTarget && close()}>
-      <div class=${`sheet ${dy ? 'dragging' : ''}`} ref=${sheetRef} role="dialog" aria-modal="true" aria-label=${title}
+      <div class=${`sheet ${dy ? 'dragging' : ''} ${compact ? 'compact' : ''}`} ref=${sheetRef} role="dialog" aria-modal="true" aria-label=${title}
         style=${dy ? `transform:translateY(${dy}px)` : ''}>
         <div class="sheet-grab" aria-hidden="true"></div>
         <div class="sheet-head">
           <h2>${title}</h2>
           ${status && html`<span class="sheet-status">${status}</span>`}
-          <button class="done-btn" onClick=${close}>Done</button>
+          ${compact
+            ? html`<button class="icon-btn" onClick=${close} aria-label="Close"><${Icon} name="x" /></button>`
+            : html`<button class="done-btn" onClick=${close}>Done</button>`}
         </div>
         <div class="sheet-body" ref=${bodyRef}>${children}</div>
       </div>
@@ -604,6 +606,7 @@ function ListScreen({ personId, me, group, people, items, removed, claims, now, 
   const [picture, setPicture] = useState(false);
   const [importing, setImporting] = useState(false);
   const [, setSeenTick] = useState(0);
+  const [claimMenu, setClaimMenu] = useState(null); // item whose claim options are open
   const list = person ? M.sortItems(items.filter((i) => i.ownerId === person.id)) : [];
   const reorder = useReorder(list.map((i) => i.id), (ids) => {
     ids.forEach((id, i) => { if (list.find((x) => x.id === id)?.order !== i) store.patch('items', id, { order: i }).catch(fail); });
@@ -668,7 +671,7 @@ function ListScreen({ personId, me, group, people, items, removed, claims, now, 
         </div>`}
         <div class="items">
           ${shown.map((it, i) => html`<${ItemRow} key=${it.id} item=${it} mode=${mode} me=${me} people=${people} year=${year}
-            claim=${claimOf(it.id)} claims=${claims} onEdit=${editable ? () => setEditing(it) : null} locked=${locked}
+            claim=${claimOf(it.id)} claims=${claims} onEdit=${editable ? () => setEditing(it) : null} locked=${locked} onClaimMenu=${setClaimMenu}
             change=${mode === 'shop' ? M.changeOf(it, group)?.kind : null} ownerView=${ownerView}
             handle=${ownerView ? reorder.handle(it.id) : null} rowRef=${reorder.rowRef(it.id)}
             style=${ownerView ? reorder.styleFor(it.id, i) : ''} dragging=${reorder.draggingId === it.id} />`)}
@@ -682,9 +685,26 @@ function ListScreen({ personId, me, group, people, items, removed, claims, now, 
     ${editing && html`<${ItemSheet} item=${editing === 'new' ? null : editing} owner=${person} me=${me} year=${year}
       nextOrder=${M.nextOrder(list)} onClose=${() => setEditing(null)} locked=${locked}
       onDelete=${(id) => deleteItem(items.find((i) => i.id === id) || { id, hasPhoto: true }, claims, locked)} />`}
+    ${claimMenu && claimOf(claimMenu.id) && html`<${ClaimSheet} item=${claimMenu} claim=${claimOf(claimMenu.id)}
+      onClose=${() => setClaimMenu(null)} />`}
     ${importing && html`<${ImportSheet} owner=${person} me=${me} year=${year} list=${list} onClose=${() => setImporting(false)} />`}
     ${picture && html`<${PictureSheet} person=${person} items=${list} year=${year} onClose=${() => setPicture(false)} />`}
   </main>`;
+}
+
+/** Small slide-up menu for an item you've claimed: mark bought / not bought, or unclaim. Swipe down to close. */
+function ClaimSheet({ item, claim, onClose }) {
+  const bought = claim.status === 'bought';
+  const act = (fn) => { fn(); onClose(); };
+  return html`<${Sheet} title=${item.title} onClose=${onClose} compact=${true}>
+    <p class="hint claim-sheet-sub">${bought ? "You've bought this." : "You've claimed this, so nobody else will buy it."}</p>
+    <div class="claim-options">
+      <button class=${`btn block ${bought ? '' : 'buy-btn'}`} onClick=${() => act(() => setBought(item, !bought))}>
+        <${Icon} name=${bought ? 'undo' : 'check'} /> ${bought ? 'Mark as not bought' : 'Mark as bought'}</button>
+      <button class="btn block danger unclaim-btn" onClick=${() => act(() => unclaim(item))}>
+        <${Icon} name="x" /> Unclaim</button>
+    </div>
+  <//>`;
 }
 
 function ClaimPill({ claim, me, people }) {
@@ -696,7 +716,7 @@ function ClaimPill({ claim, me, people }) {
     ${bought ? 'Bought' : 'Claimed'} · ${who}</span>`;
 }
 
-function ItemRow({ item, mode, me, people, claim, claims, year, onEdit, handle, rowRef, style, dragging, locked, change, ownerView }) {
+function ItemRow({ item, mode, me, people, claim, claims, year, onEdit, onClaimMenu, handle, rowRef, style, dragging, locked, change, ownerView }) {
   const [photo, setPhoto] = useState(false);
   const meta = M.itemMeta(item);
   const shop = mode === 'shop';
@@ -749,9 +769,9 @@ function ItemRow({ item, mode, me, people, claim, claims, year, onEdit, handle, 
       </div>
       ${shop && !gone && html`<div class="row-actions">
         ${!claim && html`<button class="act claim" onClick=${() => claimItem(item, me, year)}><${Icon} name="gift" size=${18} /><small>Claim</small></button>`}
-        ${mine && html`<button class=${`act ${claim.status === 'bought' ? 'done' : 'buy'}`}
-          onClick=${() => setBought(item, claim.status !== 'bought')}><${Icon} name="check" size=${18} />
-          <small>${claim.status === 'bought' ? 'Bought' : 'Bought?'}</small></button>`}
+        ${mine && html`<button class=${`act ${claim.status === 'bought' ? 'done' : 'mine'}`} aria-haspopup="dialog"
+          onClick=${() => onClaimMenu?.(item)}><${Icon} name=${claim.status === 'bought' ? 'check' : 'gift'} size=${18} />
+          <small>${claim.status === 'bought' ? 'Bought' : 'Claimed'}</small></button>`}
       </div>`}
     </div>
     ${photo && html`<${Lightbox} id=${item.id} onClose=${() => setPhoto(false)} />`}
