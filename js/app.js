@@ -724,6 +724,8 @@ function ItemRow({ item, mode, me, people, claim, claims, year, onEdit, onClaimM
   const takenByOther = shop && claim && !mine;
   const gone = !!item.removedAt;
   const alert = mine ? M.claimAlert(item, claim) : null;
+  // Tapping the card: your claimed item opens the claim menu; otherwise editors open the item.
+  const tapAction = gone ? null : shop && mine && onClaimMenu ? () => onClaimMenu(item) : onEdit;
   const del = () => {
     if (!confirm(locked ? `Remove "${item.title}"? Everyone will be told, in case someone already bought it.` : `Delete "${item.title}"?`)) return;
     deleteItem(item, claims, locked);
@@ -748,8 +750,8 @@ function ItemRow({ item, mode, me, people, claim, claims, year, onEdit, onClaimM
 
   return html`<${SwipeRow} left=${left} right=${right} rowRef=${rowRef} style=${style}
       class=${`item ${takenByOther ? 'taken' : ''} ${item.priority ? 'star' : ''} ${dragging ? 'dragging' : ''} ${gone ? 'gone' : ''}`}>
-    <div class=${`item-row ${onEdit && !gone ? 'tappable' : ''}`}
-      onClick=${onEdit && !gone ? (e) => { if (!e.target.closest('a, button')) onEdit(); } : null}>
+    <div class=${`item-row ${tapAction ? 'tappable' : ''}`}
+      onClick=${tapAction ? (e) => { if (!e.target.closest('a, button')) tapAction(); } : null}>
       ${handle && html`<button class="handle" aria-label="Drag to reorder" ...${handle}><${Icon} name="grip" /></button>`}
       ${item.thumb && html`<button class="thumb-btn" onClick=${() => item.hasPhoto && setPhoto(true)} aria-label="View photo">
         <img class="thumb" src=${item.thumb} alt="" /></button>`}
@@ -770,7 +772,7 @@ function ItemRow({ item, mode, me, people, claim, claims, year, onEdit, onClaimM
       ${shop && !gone && html`<div class="row-actions">
         ${!claim && html`<button class="act claim" onClick=${() => claimItem(item, me, year)}><${Icon} name="gift" size=${18} /><small>Claim</small></button>`}
         ${mine && html`<button class=${`act ${claim.status === 'bought' ? 'done' : 'mine'}`} aria-haspopup="dialog"
-          onClick=${() => onClaimMenu?.(item)}><${Icon} name=${claim.status === 'bought' ? 'check' : 'gift'} size=${18} />
+          onClick=${() => onClaimMenu?.(item)}><${Icon} name="check" size=${18} />
           <small>${claim.status === 'bought' ? 'Bought' : 'Claimed'}</small></button>`}
       </div>`}
     </div>

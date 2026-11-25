@@ -510,7 +510,7 @@ input, textarea, select { font-size: 16px; } /* stops iOS zooming on focus */
 }
 
 /* claim options slide-over */
-.act.mine { background: var(--gold-soft); color: #7a5410; }
+.act.mine { background: #f1ece4; color: #8d7f75; }
 .sheet.compact .sheet-head h2 { font-size: 1.05rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .claim-sheet-sub { margin: 0 0 6px; }
 .claim-options { display: flex; flex-direction: column; gap: 10px; padding-bottom: 6px; }
